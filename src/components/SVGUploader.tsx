@@ -1,9 +1,8 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload, CheckCircle } from 'lucide-react';
+import { Upload } from 'lucide-react';
 import { SVGShape, NFTMetadata } from '../types';
-import { extractShapesFromSVG } from '../utils/svgProcessor';
-import { applyMaskToImage } from '../utils/svgProcessor';
+import { extractShapesFromSVG, applyMaskToImage } from '../utils/svgProcessor';
 import { useNFTOwnership } from '../hooks/useNFTOwnership';
 
 interface SVGUploaderProps {
@@ -17,11 +16,12 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
   const [svgPreview, setSvgPreview] = React.useState<string | null>(null);
   const previewCanvasRef = React.useRef<HTMLCanvasElement>(null);
   const [shapes, setShapes] = React.useState<SVGShape[]>([]);
-  const { isOwner, tokenIds, error: nftError, checkOwnership, loading } = useNFTOwnership();
+  const { isOwner, tokenIds, checkOwnership } = useNFTOwnership();
   const [checkingNFT, setCheckingNFT] = React.useState<boolean>(false);
   const [verificationStatus, setVerificationStatus] = React.useState<string>('');
+  const [showDragDrop] = React.useState<boolean>(false);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (isOwner && tokenIds.length > 0) {
       setError('');
       setVerificationStatus(`NFT trouvé! Token IDs: ${tokenIds.join(', ')}`);
@@ -83,10 +83,14 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
                     ctx.drawImage(tempCanvas, 0, 0);
                     resolveNft();
                   } catch (err) {
+                    console.error('Erreur lors de l\'application du masque:', err);
                     rejectNft(err);
                   }
                 };
-                nftImage.onerror = () => rejectNft(new Error('Failed to load NFT image'));
+                nftImage.onerror = () => {
+                  console.error('Erreur lors du chargement de l\'image NFT');
+                  rejectNft(new Error('Erreur lors du chargement de l\'image NFT'));
+                };
                 nftImage.src = selectedNft.imageUrl + `?t=${Date.now()}`;
               });
             } else {
@@ -301,97 +305,84 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
 
   return (
     <div className="space-y-4">
-      <div
-        {...getRootProps()}
-        className={`p-8 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
-          isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
-        }`}
-      >
-        <input {...getInputProps()} />
-        <div className="flex flex-col items-center text-center">
-          <Upload className="w-12 h-12 text-gray-400 mb-4" />
-          <p className="text-lg font-medium text-gray-700">
-            {isDragActive
-              ? 'Drop the SVG file here'
-              : 'Drag & drop an SVG file here, or click to select'}
-          </p>
-          <p className="mt-2 text-sm text-gray-500">
-            Only SVG files with closed shapes are supported
-          </p>
-        </div>
-      </div>
-      
-      <div className="flex flex-col mt-4 space-y-2">
-        <button
-          onClick={handleCheckNFT}
-          disabled={checkingNFT || !walletAddress || loading}
-          className={`flex items-center justify-center px-4 py-2 rounded-lg text-white ${
-            checkingNFT || !walletAddress || loading
-              ? 'bg-gray-400 cursor-not-allowed'
-              : 'bg-blue-500 hover:bg-blue-600'
-          }`}
-        >
-          {checkingNFT ? (
-            <>
-              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-              </svg>
-              Vérification...
-            </>
-          ) : (
-            <>
-              <CheckCircle className="w-4 h-4 mr-2" />
-              Vérifier propriété NFT
-            </>
-          )}
-        </button>
+      <div className="flex flex-col gap-4 w-full max-w-3xl mx-auto p-4 bg-white rounded-lg shadow-md">
+        {/* Titre et lien masqués */}
+        {/* <h2 className="text-xl font-semibold text-center">Chargeur de SVG</h2> */}
         
-        {walletAddress && (
-          <div className="text-sm text-gray-600">
-            Wallet connecté: {walletAddress.substring(0, 6)}...{walletAddress.substring(walletAddress.length - 4)}
+        {/* Bouton pour afficher/masquer le bloc de drag & drop - masqué */}
+        {/* <div className="flex justify-end mb-2">
+          <button
+            type="button"
+            onClick={() => setShowDragDrop(!showDragDrop)}
+            className="text-sm text-gray-600 hover:text-gray-800 underline"
+          >
+            {showDragDrop ? "Masquer l'upload manuel" : "Afficher l'upload manuel"}
+          </button>
+        </div> */}
+        
+        {/* Section de vérification NFT */}
+        <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+          <h3 className="text-lg font-medium mb-2">Vérification de propriété NFT</h3>
+          <p className="text-sm text-gray-600 mb-3">
+            Connectez votre wallet et vérifiez si vous possédez un NFT de la collection pour charger automatiquement votre SVG.
+          </p>
+          
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCheckNFT}
+              disabled={!walletAddress || checkingNFT}
+              className={`px-4 py-2 rounded-md ${!walletAddress || checkingNFT ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+            >
+              {checkingNFT ? 'Vérification...' : 'Vérifier propriété NFT'}
+            </button>
+            
+            {verificationStatus && (
+              <span className={`text-sm ${error ? 'text-red-500' : 'text-green-600'}`}>
+                {verificationStatus}
+              </span>
+            )}
+          </div>
+          
+          {error && <p className="text-sm text-red-500 mt-2">{error}</p>}
+        </div>
+        
+        {/* Bloc de drag & drop (masqué) */}
+        {showDragDrop && (
+          <div
+            {...getRootProps()}
+            className={`p-8 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+              isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
+            }`}
+          >
+            <input {...getInputProps()} />
+            <div className="flex flex-col items-center text-center">
+              <Upload className="w-12 h-12 text-gray-400 mb-4" />
+              <p className="text-lg font-medium text-gray-700">
+                {isDragActive
+                  ? 'Drop the SVG file here'
+                  : 'Drag & drop an SVG file here, or click to select'}
+              </p>
+              <p className="mt-2 text-sm text-gray-500">
+                Only SVG files with closed shapes are supported
+              </p>
+            </div>
           </div>
         )}
         
-        {isOwner && tokenIds.length > 0 && !error && (
-          <div className="text-sm text-green-600">
-            Vous possédez {tokenIds.length} NFT(s) de cette collection. Token IDs: {tokenIds.join(', ')}
+        {/* Aperçu du SVG */}
+        {svgPreview && (
+          <div className="mt-4">
+            <h3 className="text-lg font-medium mb-2">Aperçu</h3>
+            <div className="relative bg-gray-100 rounded-lg overflow-hidden" style={{ height: '300px', width: '250px', margin: '0 auto' }}>
+              <canvas
+                ref={previewCanvasRef}
+                className="absolute inset-0 w-full h-full"
+              />
+            </div>
           </div>
         )}
       </div>
-      
-      {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-600 text-sm">{error}</p>
-        </div>
-      )}
-
-      {nftError && !error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-red-600 text-sm">{nftError}</p>
-        </div>
-      )}
-
-      {verificationStatus && !error && !nftError && (
-        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-blue-600 text-sm">{verificationStatus}</p>
-        </div>
-      )}
-
-      {svgPreview && shapes.length > 0 && (
-        <div>
-          <h3 className="text-lg font-semibold mb-2">Preview</h3>
-          <div className="border rounded-lg overflow-hidden bg-white p-4 flex justify-center">
-            <canvas
-              ref={previewCanvasRef}
-              className="max-w-full h-auto"
-            />
-          </div>
-          <p className="mt-2 text-sm text-gray-500">
-            {shapes.length} shapes detected in the SVG
-          </p>
-        </div>
-      )}
     </div>
   );
 };
