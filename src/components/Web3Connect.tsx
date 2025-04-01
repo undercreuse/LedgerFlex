@@ -103,14 +103,9 @@ export const Web3Connect: React.FC<Web3ConnectProps> = ({ onConnect }) => {
         throw new Error('Aucun wallet compatible Ethereum détecté. Veuillez installer MetaMask ou un autre wallet compatible.');
       }
       
-      if (!provider) {
-        const newProvider = new ethers.BrowserProvider((window as any).ethereum);
-        setProvider(newProvider);
-      }
-      
-      // Demander la connexion au wallet
-      const currentProvider = provider || new ethers.BrowserProvider((window as any).ethereum);
-      const accounts = await currentProvider.send('eth_requestAccounts', []);
+      // Demander la connexion au wallet via ethereum.request
+      const { ethereum } = window as any;
+      const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
       
       if (accounts.length === 0) {
         throw new Error('Aucun compte autorisé');
@@ -124,8 +119,12 @@ export const Web3Connect: React.FC<Web3ConnectProps> = ({ onConnect }) => {
         throw new Error('Adresse Ethereum invalide');
       }
       
+      // Initialiser le provider après la connexion
+      const newProvider = new ethers.BrowserProvider(ethereum);
+      setProvider(newProvider);
+      
       // Récupérer le réseau actuel
-      const network = await currentProvider.getNetwork();
+      const network = await newProvider.getNetwork();
       setNetworkId('0x' + network.chainId.toString(16));
       
       setAddress(connectedAddress);

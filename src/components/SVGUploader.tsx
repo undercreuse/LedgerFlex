@@ -7,9 +7,9 @@ import { useNFTOwnership } from '../hooks/useNFTOwnership';
 
 interface SVGUploaderProps {
   onSVGLoad: (shapes: SVGShape[]) => void;
-  selectedNfts?: NFTMetadata[];
+  selectedNfts?: (NFTMetadata | undefined)[];
   walletAddress?: string;
-  onCellDrop?: (cellIndex: number, nft: NFTMetadata) => void;
+  onCellDrop?: (cellIndex: number, nft: NFTMetadata | undefined) => void;
 }
 
 export const SVGUploader: React.FC<SVGUploaderProps> = ({ 
@@ -59,7 +59,7 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
     }
   }, [isOwner, tokenIds]);
 
-  const renderPreview = async (svgContent: string, svgShapes: SVGShape[], selectedNfts: NFTMetadata[]) => {
+  const renderPreview = async (svgContent: string, svgShapes: SVGShape[], selectedNfts: (NFTMetadata | undefined)[]) => {
     const canvas = previewCanvasRef.current;
     if (!canvas || svgShapes.length === 0) return;
 
@@ -79,6 +79,61 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    // Récupérer le token ID à partir du SVG chargé
+    let tokenId = '1'; // Valeur par défaut
+    try {
+      // Essayer d'extraire le token ID du nom du fichier SVG
+      const svgMatch = svgContent.match(/mask_(\d+)\.svg/);
+      if (svgMatch && svgMatch[1]) {
+        tokenId = svgMatch[1];
+      } else {
+        // Rechercher dans l'URL si disponible
+        const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
+        if (urlMatch && urlMatch[1]) {
+          tokenId = urlMatch[1];
+        }
+      }
+      console.log(`Token ID détecté: ${tokenId}`);
+    } catch (err) {
+      console.warn('Impossible de détecter le token ID:', err);
+    }
+
+    // Charger d'abord l'image d'alvéoles complète en arrière-plan
+    try {
+      const alveoleImg = new Image();
+      alveoleImg.crossOrigin = 'anonymous';
+      
+      await new Promise<void>((resolveAlveole) => {
+        const timeoutId = setTimeout(() => {
+          console.warn(`Timeout lors du chargement de l'image d'alvéoles complète`);
+          resolveAlveole();
+        }, 5000);
+        
+        alveoleImg.onload = () => {
+          clearTimeout(timeoutId);
+          // Dessiner l'image d'alvéoles complète en arrière-plan
+          ctx.save();
+          ctx.scale(scale, scale);
+          ctx.translate(-viewBox.minX, -viewBox.minY);
+          ctx.drawImage(alveoleImg, viewBox.minX, viewBox.minY, viewBox.width, viewBox.height);
+          ctx.restore();
+          resolveAlveole();
+        };
+        
+        alveoleImg.onerror = () => {
+          clearTimeout(timeoutId);
+          console.error(`Erreur lors du chargement de l'image d'alvéoles complète`);
+          resolveAlveole();
+        };
+        
+        const baseUrl = window.location.origin;
+        alveoleImg.src = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
+      });
+    } catch (err) {
+      console.error('Erreur lors du chargement de l\'image d\'alvéoles complète:', err);
+    }
+
+    // Dessiner le SVG par-dessus
     const img = new Image();
     const blob = new Blob([svgContent], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
@@ -86,14 +141,15 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
     await new Promise<void>((resolve, reject) => {
       img.onload = async () => {
         try {
+          // Dessiner le SVG par-dessus l'image d'alvéoles
           ctx.save();
-          
           ctx.scale(scale, scale);
-          
           ctx.translate(-viewBox.minX, -viewBox.minY);
           
+          // Dessiner uniquement les contours du SVG (pas de remplissage)
           ctx.drawImage(img, viewBox.minX, viewBox.minY, viewBox.width, viewBox.height);
 
+          // Dessiner les NFTs dans les cellules
           for (let i = 0; i < svgShapes.length; i++) {
             const shape = svgShapes[i];
             const selectedNft = selectedNfts[i];
@@ -125,6 +181,7 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
                 nftImage.src = selectedNft.imageUrl + `?t=${Date.now()}`;
               });
             } else {
+              // Afficher uniquement le numéro de la cellule si aucun NFT n'est associé
               const minDimension = Math.min(shape.bounds.width, shape.bounds.height);
               const fontSize = Math.max(12, Math.min(minDimension * 0.3, 24));
               
@@ -445,19 +502,46 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
                           width: width,
                           height: height,
                           borderRadius: '50%',
-                          cursor: 'pointer',
-                          backgroundColor: isDragOver ? 'rgba(59, 130, 246, 0.3)' : 'transparent',
-                          border: isDragOver ? '2px dashed #3b82f6' : 'none',
-                          zIndex: 10,
+                          border: isDragOver 
+                            ? '2px dashed #4f46e5' 
+                            : isOccupied 
+                              ? '2px solid rgba(79, 70, 229, 0.3)' 
+                              : '2px solid transparent',
+                          backgroundColor: isDragOver 
+                            ? 'rgba(79, 70, 229, 0.1)' 
+                            : 'transparent',
                           display: 'flex',
-                          alignItems: 'center',
                           justifyContent: 'center',
+                          alignItems: 'center',
+                          cursor: isOccupied ? 'default' : 'pointer',
+                          zIndex: 10
                         }}
                       >
-                        {!isOccupied && !isDragOver && (
-                          <span className="text-xs font-bold text-white bg-gray-800 bg-opacity-70 px-2 py-1 rounded-full">
-                            {index + 1}
-                          </span>
+                        {isOccupied && (
+                          <button
+                            onClick={() => onCellDrop && onCellDrop(index, undefined)}
+                            style={{
+                              position: 'absolute',
+                              top: '5px',
+                              right: '5px',
+                              width: '20px',
+                              height: '20px',
+                              borderRadius: '50%',
+                              backgroundColor: 'rgba(255, 0, 0, 0.7)',
+                              color: 'white',
+                              display: 'flex',
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                              fontSize: '12px',
+                              fontWeight: 'bold',
+                              cursor: 'pointer',
+                              border: 'none',
+                              zIndex: 20
+                            }}
+                            title="Supprimer le NFT"
+                          >
+                            ✕
+                          </button>
                         )}
                       </div>
                     );

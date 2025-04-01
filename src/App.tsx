@@ -9,7 +9,7 @@ function App() {
   const [connected, setConnected] = useState(false);
   const [address, setAddress] = useState('');
   const [shapes, setShapes] = useState<SVGShape[]>([]);
-  const [nfts, setNfts] = useState<NFTMetadata[]>([]);
+  const [nfts, setNfts] = useState<(NFTMetadata | undefined)[]>([]);
   const [maskedImages, setMaskedImages] = useState<HTMLCanvasElement[]>([]);
   const [finalImage, setFinalImage] = useState<string | null>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -30,32 +30,34 @@ function App() {
   };
 
   // Fonction pour gérer le drop d'un NFT sur une cellule spécifique
-  const handleCellDrop = (cellIndex: number, nft: NFTMetadata) => {
+  const handleCellDrop = (cellIndex: number, nft: NFTMetadata | undefined) => {
     if (processing) return;
     
     try {
       setError(null);
       setProcessing(true);
       
-      // Créer une nouvelle liste de NFTs avec le NFT déposé à la position cellIndex
-      const newNfts = [...nfts];
+      // Créer une copie du tableau actuel
+      const updatedNfts = [...nfts];
       
-      // Si cette cellule est déjà occupée, on échange les NFTs
-      const existingNftIndex = newNfts.findIndex(n => n && n.id === nft.id);
-      
-      // Mettre à jour la cellule avec le nouveau NFT
-      newNfts[cellIndex] = nft;
-      
-      // Si le NFT était déjà dans une autre cellule, la vider
-      if (existingNftIndex !== -1 && existingNftIndex !== cellIndex) {
-        newNfts[existingNftIndex] = undefined as any;
+      if (nft === undefined) {
+        // Si nft est undefined, cela signifie qu'on veut supprimer le NFT de cette cellule
+        updatedNfts[cellIndex] = undefined;
+        console.log(`NFT supprimé de la cellule ${cellIndex + 1}`);
+      } else {
+        // Sinon, on ajoute ou remplace le NFT dans cette cellule
+        updatedNfts[cellIndex] = nft;
+        console.log(`NFT ${nft.name} placé dans la cellule ${cellIndex + 1}`);
       }
       
       // Mettre à jour l'état
-      setNfts(newNfts);
+      setNfts(updatedNfts);
+      
+      // Réinitialiser l'image finale car elle n'est plus à jour
+      setFinalImage(null);
       
       // Traiter les images masquées
-      processNFTImages(newNfts.filter(Boolean));
+      processNFTImages(updatedNfts.filter(Boolean));
     } catch (err) {
       console.error('Erreur lors du traitement du drop:', err);
       setError(err instanceof Error ? err.message : 'Erreur lors du traitement du drop');
@@ -76,6 +78,50 @@ function App() {
 
     ctx.clearRect(0, 0, finalCanvas.width, finalCanvas.height);
 
+    // Récupérer le token ID à partir de l'URL ou d'autres sources
+    let tokenId = '1'; // Valeur par défaut
+    try {
+      // Rechercher dans l'URL si disponible
+      const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
+      if (urlMatch && urlMatch[1]) {
+        tokenId = urlMatch[1];
+      }
+      console.log(`Token ID détecté pour le rendu final: ${tokenId}`);
+    } catch (err) {
+      console.warn('Impossible de détecter le token ID pour le rendu final:', err);
+    }
+
+    // Charger l'image d'alvéoles en arrière-plan
+    try {
+      await new Promise<void>((resolve) => {
+        const alveoleImg = new Image();
+        alveoleImg.crossOrigin = 'anonymous';
+        
+        const timeoutId = setTimeout(() => {
+          console.warn(`Timeout lors du chargement de l'image d'alvéoles pour le rendu final`);
+          resolve(); // Continuer sans l'image d'alvéoles
+        }, 5000);
+        
+        alveoleImg.onload = () => {
+          clearTimeout(timeoutId);
+          // Dessiner l'image d'alvéoles complète en arrière-plan
+          ctx.drawImage(alveoleImg, 0, 0, finalCanvas.width, finalCanvas.height);
+          resolve();
+        };
+        
+        alveoleImg.onerror = () => {
+          clearTimeout(timeoutId);
+          console.error(`Erreur lors du chargement de l'image d'alvéoles pour le rendu final`);
+          resolve(); // Continuer sans l'image d'alvéoles
+        };
+        
+        const baseUrl = window.location.origin;
+        alveoleImg.src = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
+      });
+    } catch (err) {
+      console.error('Erreur lors du chargement de l\'image d\'alvéoles pour le rendu final:', err);
+    }
+
     // Draw all masked images in order
     for (const canvas of images) {
       if (canvas.width === 0 || canvas.height === 0) {
@@ -93,7 +139,7 @@ function App() {
   };
 
   // Fonction pour traiter les images NFT et créer les masques
-  const processNFTImages = async (selectedNfts: NFTMetadata[]) => {
+  const processNFTImages = async (selectedNfts: (NFTMetadata | undefined)[]) => {
     try {
       // Réinitialiser les images masquées pour les recréer toutes
       setMaskedImages([]);
@@ -101,9 +147,12 @@ function App() {
       // Créer un tableau pour stocker les nouvelles images masquées
       const newMaskedImages: HTMLCanvasElement[] = [];
 
+      // Filtrer les NFTs non-undefined avant de les traiter
+      const validNfts = selectedNfts.filter((nft): nft is NFTMetadata => nft !== undefined);
+
       // Traiter chaque NFT sélectionné avec sa forme correspondante
-      for (let i = 0; i < selectedNfts.length; i++) {
-        const currentNft = selectedNfts[i];
+      for (let i = 0; i < validNfts.length; i++) {
+        const currentNft = validNfts[i];
         
         // Trouver l'index de la forme correspondante dans le tableau shapes
         // Pour le drag and drop, l'index peut ne pas correspondre à l'ordre des NFTs
