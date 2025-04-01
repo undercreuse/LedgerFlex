@@ -34,6 +34,9 @@ function App() {
     if (processing) return;
     
     try {
+      setError(null);
+      setProcessing(true);
+      
       // Créer une nouvelle liste de NFTs avec le NFT déposé à la position cellIndex
       const newNfts = [...nfts];
       
@@ -51,11 +54,12 @@ function App() {
       // Mettre à jour l'état
       setNfts(newNfts);
       
-      // Traiter le NFT comme s'il avait été sélectionné
-      handleNFTsSelected(newNfts.filter(Boolean));
+      // Traiter les images masquées
+      processNFTImages(newNfts.filter(Boolean));
     } catch (err) {
       console.error('Erreur lors du traitement du drop:', err);
       setError(err instanceof Error ? err.message : 'Erreur lors du traitement du drop');
+      setProcessing(false);
     }
   };
 
@@ -88,113 +92,123 @@ function App() {
     return dataUrl;
   };
 
-  const handleNFTsSelected = async (selectedNfts: NFTMetadata[]) => {
-    if (processing) return;
-
+  // Fonction pour traiter les images NFT et créer les masques
+  const processNFTImages = async (selectedNfts: NFTMetadata[]) => {
     try {
-      setError(null);
-      setProcessing(true);
+      // Réinitialiser les images masquées pour les recréer toutes
+      setMaskedImages([]);
+      
+      // Créer un tableau pour stocker les nouvelles images masquées
+      const newMaskedImages: HTMLCanvasElement[] = [];
 
-      // Get the latest selected NFT
-      const currentNft = selectedNfts[selectedNfts.length - 1];
-      const currentShape = shapes[selectedNfts.length - 1];
+      // Traiter chaque NFT sélectionné avec sa forme correspondante
+      for (let i = 0; i < selectedNfts.length; i++) {
+        const currentNft = selectedNfts[i];
+        
+        // Trouver l'index de la forme correspondante dans le tableau shapes
+        // Pour le drag and drop, l'index peut ne pas correspondre à l'ordre des NFTs
+        const shapeIndex = nfts.findIndex(n => n && n.id === currentNft.id);
+        const currentShape = shapes[shapeIndex !== -1 ? shapeIndex : i];
 
-      if (!currentNft || !currentShape) {
-        throw new Error('Invalid NFT or shape selection');
+        if (!currentNft || !currentShape) {
+          console.warn(`NFT ou forme manquante pour l'index ${i}`);
+          continue;
+        }
+
+        // Créer et charger l'image
+        const image = new Image();
+        image.crossOrigin = 'anonymous';
+
+        await new Promise<void>((resolve, reject) => {
+          const timeoutId = setTimeout(() => {
+            reject(new Error(`Timeout loading image ${i + 1}`));
+          }, 30000);
+
+          image.onload = async () => {
+            clearTimeout(timeoutId);
+            try {
+              if (image.width === 0 || image.height === 0) {
+                throw new Error('Invalid image dimensions');
+              }
+
+              // Créer un nouveau canvas pour cette image masquée
+              const maskedCanvas = document.createElement('canvas');
+              maskedCanvas.width = currentShape.viewBox.width;
+              maskedCanvas.height = currentShape.viewBox.height;
+
+              // Appliquer le masque à l'image
+              await applyMaskToImage(image, currentShape, maskedCanvas);
+
+              // Vérifier que le canvas masqué a un contenu valide
+              const maskedCtx = maskedCanvas.getContext('2d');
+              if (!maskedCtx) throw new Error('Could not get masked canvas context');
+
+              const imageData = maskedCtx.getImageData(
+                0, 0, maskedCanvas.width, maskedCanvas.height
+              );
+              if (!imageData.data.some(pixel => pixel !== 0)) {
+                throw new Error('Masked image is empty');
+              }
+
+              // Ajouter le canvas masqué à notre collection temporaire
+              newMaskedImages.push(maskedCanvas);
+
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          };
+
+          image.onerror = () => {
+            clearTimeout(timeoutId);
+            reject(new Error(`Failed to load image ${i + 1} from URL: ${currentNft.imageUrl}`));
+          };
+
+          // Ajouter un mécanisme anti-cache et de réessai
+          const maxRetries = 3;
+          let retryCount = 0;
+
+          const loadImage = () => {
+            const cacheBuster = `?t=${Date.now()}`;
+            image.src = currentNft.imageUrl + cacheBuster;
+          };
+
+          image.onerror = () => {
+            clearTimeout(timeoutId);
+            if (retryCount < maxRetries) {
+              retryCount++;
+              setTimeout(loadImage, 1000 * retryCount); // Backoff exponentiel
+            } else {
+              reject(new Error(`Failed to load image after ${maxRetries} attempts: ${currentNft.imageUrl}`));
+            }
+          };
+
+          loadImage();
+        });
       }
 
-      // Create and load the image
-      const image = new Image();
-      image.crossOrigin = 'anonymous';
+      // Mettre à jour l'état avec toutes les images masquées
+      setMaskedImages(newMaskedImages);
+      
+      // Afficher le nombre d'images masquées créées
+      console.log(`${newMaskedImages.length} images masquées créées`);
 
-      await new Promise<void>((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          reject(new Error(`Timeout loading image ${selectedNfts.length}`));
-        }, 30000);
+      // Si nous avons des images, fusionnez-les
+      if (newMaskedImages.length > 0) {
+        const finalCanvas = canvasRef.current;
+        if (!finalCanvas) throw new Error('Canvas not available');
 
-        image.onload = async () => {
-          clearTimeout(timeoutId);
-          try {
-            if (image.width === 0 || image.height === 0) {
-              throw new Error('Invalid image dimensions');
-            }
+        const dataUrl = await mergeMaskedImages(
+          newMaskedImages,
+          finalCanvas,
+          shapes[0].viewBox
+        );
 
-            // Create a new canvas for this masked image
-            const maskedCanvas = document.createElement('canvas');
-            maskedCanvas.width = currentShape.viewBox.width;
-            maskedCanvas.height = currentShape.viewBox.height;
-
-            // Apply mask to the image
-            await applyMaskToImage(image, currentShape, maskedCanvas);
-
-            // Verify the masked canvas has valid content
-            const maskedCtx = maskedCanvas.getContext('2d');
-            if (!maskedCtx) throw new Error('Could not get masked canvas context');
-
-            const imageData = maskedCtx.getImageData(
-              0, 0, maskedCanvas.width, maskedCanvas.height
-            );
-            if (!imageData.data.some(pixel => pixel !== 0)) {
-              throw new Error('Masked image is empty');
-            }
-
-            // Add the masked canvas to our collection
-            setMaskedImages(prev => [...prev, maskedCanvas]);
-
-            // If we have all images, merge them
-            if (selectedNfts.length === shapes.length) {
-              const finalCanvas = canvasRef.current;
-              if (!finalCanvas) throw new Error('Canvas not available');
-
-              const dataUrl = await mergeMaskedImages(
-                [...maskedImages, maskedCanvas],
-                finalCanvas,
-                currentShape.viewBox
-              );
-
-              setFinalImage(dataUrl);
-            }
-
-            resolve();
-          } catch (err) {
-            reject(err);
-          }
-        };
-
-        image.onerror = () => {
-          clearTimeout(timeoutId);
-          reject(new Error(`Failed to load image ${selectedNfts.length} from URL: ${currentNft.imageUrl}`));
-        };
-
-        // Add cache-busting and retry mechanism
-        const maxRetries = 3;
-        let retryCount = 0;
-
-        const loadImage = () => {
-          const cacheBuster = `?t=${Date.now()}`;
-          image.src = currentNft.imageUrl + cacheBuster;
-        };
-
-        image.onerror = () => {
-          clearTimeout(timeoutId);
-          if (retryCount < maxRetries) {
-            retryCount++;
-            setTimeout(loadImage, 1000 * retryCount); // Exponential backoff
-          } else {
-            reject(new Error(`Failed to load image after ${maxRetries} attempts: ${currentNft.imageUrl}`));
-          }
-        };
-
-        loadImage();
-      });
-
-      setNfts(selectedNfts);
+        setFinalImage(dataUrl);
+      }
     } catch (err) {
       console.error('Error processing image:', err);
       setError(err instanceof Error ? err.message : 'Failed to process image');
-      // Remove the last selected NFT if there was an error
-      setNfts(prev => prev.slice(0, -1));
-      setMaskedImages(prev => prev.slice(0, -1));
     } finally {
       setProcessing(false);
     }
@@ -237,6 +251,15 @@ function App() {
                     <p className="text-red-600 text-sm">{error}</p>
                   </div>
                 )}
+                
+                {/* Afficher le nombre d'images masquées */}
+                {maskedImages.length > 0 && (
+                  <div className="p-3 bg-blue-50 rounded-lg">
+                    <p className="text-sm text-blue-700">
+                      {maskedImages.length} images masquées créées
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -247,7 +270,6 @@ function App() {
                   <NFTSelector
                     requiredCount={shapes.length}
                     walletAddress={address}
-                    onNFTsSelected={handleNFTsSelected}
                     isProcessing={processing}
                   />
                 )}
