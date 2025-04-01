@@ -1,46 +1,53 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { Upload } from 'lucide-react';
+import { Upload, CheckCircle } from 'lucide-react';
 import { SVGShape, NFTMetadata } from '../types';
 import { extractShapesFromSVG } from '../utils/svgProcessor';
 import { applyMaskToImage } from '../utils/svgProcessor';
+import { useNFTOwnership } from '../hooks/useNFTOwnership';
 
 interface SVGUploaderProps {
   onSVGLoad: (shapes: SVGShape[]) => void;
   selectedNfts?: NFTMetadata[];
+  walletAddress?: string;
 }
 
-export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNfts = [] }) => {
+export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNfts = [], walletAddress }) => {
   const [error, setError] = React.useState<string>('');
   const [svgPreview, setSvgPreview] = React.useState<string | null>(null);
   const previewCanvasRef = React.useRef<HTMLCanvasElement>(null);
   const [shapes, setShapes] = React.useState<SVGShape[]>([]);
+  const { isOwner, tokenIds, error: nftError, checkOwnership, loading } = useNFTOwnership();
+  const [checkingNFT, setCheckingNFT] = React.useState<boolean>(false);
+  const [verificationStatus, setVerificationStatus] = React.useState<string>('');
 
-  const renderPreview = async (svgContent: string, shapes: SVGShape[], selectedNfts: NFTMetadata[]) => {
+  useEffect(() => {
+    if (isOwner && tokenIds.length > 0) {
+      setError('');
+      setVerificationStatus(`NFT trouvé! Token IDs: ${tokenIds.join(', ')}`);
+    }
+  }, [isOwner, tokenIds]);
+
+  const renderPreview = async (svgContent: string, svgShapes: SVGShape[], selectedNfts: NFTMetadata[]) => {
     const canvas = previewCanvasRef.current;
-    if (!canvas || shapes.length === 0) return;
+    if (!canvas || svgShapes.length === 0) return;
 
-    // Use the viewBox from the first shape (all shapes share the same viewBox)
-    const viewBox = shapes[0].viewBox;
+    const viewBox = svgShapes[0].viewBox;
     const maxPreviewSize = 300;
 
-    // Calculate scale to fit within preview size while maintaining aspect ratio
     const scale = Math.min(
       maxPreviewSize / viewBox.width,
       maxPreviewSize / viewBox.height
     );
 
-    // Set canvas dimensions based on viewBox and scale
     canvas.width = viewBox.width * scale;
     canvas.height = viewBox.height * scale;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Clear the canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw the SVG
     const img = new Image();
     const blob = new Blob([svgContent], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
@@ -50,27 +57,21 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
         try {
           ctx.save();
           
-          // Scale everything according to the preview size
           ctx.scale(scale, scale);
           
-          // Apply viewBox translation
           ctx.translate(-viewBox.minX, -viewBox.minY);
           
-          // Draw the SVG
           ctx.drawImage(img, viewBox.minX, viewBox.minY, viewBox.width, viewBox.height);
 
-          // Process each shape
-          for (let i = 0; i < shapes.length; i++) {
-            const shape = shapes[i];
+          for (let i = 0; i < svgShapes.length; i++) {
+            const shape = svgShapes[i];
             const selectedNft = selectedNfts[i];
 
             if (selectedNft) {
-              // Create a temporary canvas for the masked NFT
               const tempCanvas = document.createElement('canvas');
               tempCanvas.width = viewBox.width;
               tempCanvas.height = viewBox.height;
 
-              // Load and mask the NFT image
               const nftImage = new Image();
               nftImage.crossOrigin = 'anonymous';
               
@@ -79,7 +80,6 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
                   try {
                     await applyMaskToImage(nftImage, shape, tempCanvas);
                     
-                    // Draw the masked NFT onto the preview canvas
                     ctx.drawImage(tempCanvas, 0, 0);
                     resolveNft();
                   } catch (err) {
@@ -90,7 +90,6 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
                 nftImage.src = selectedNft.imageUrl + `?t=${Date.now()}`;
               });
             } else {
-              // For unselected shapes, draw the number
               const minDimension = Math.min(shape.bounds.width, shape.bounds.height);
               const fontSize = Math.max(12, Math.min(minDimension * 0.3, 24));
               
@@ -106,9 +105,7 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
               const x = shape.center.x;
               const y = shape.center.y;
 
-              // Draw text stroke
               ctx.strokeText(text, x, y);
-              // Draw text fill
               ctx.fillText(text, x, y);
               ctx.restore();
             }
@@ -128,7 +125,6 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
     });
   };
 
-  // Update preview when selectedNfts changes
   React.useEffect(() => {
     if (svgPreview && shapes.length > 0) {
       renderPreview(svgPreview, shapes, selectedNfts).catch(err => {
@@ -161,6 +157,76 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
     }
   });
 
+  const loadSVGFromPublic = async (tokenId: string) => {
+    try {
+      setVerificationStatus(`Chargement du SVG pour le token ID: ${tokenId}...`);
+      const svgPath = `/svg/mask_${tokenId}.svg`;
+      console.log(`Tentative de chargement du SVG depuis: ${svgPath}`);
+      
+      const response = await fetch(svgPath);
+      if (!response.ok) {
+        throw new Error(`Impossible de charger le SVG pour le token ID ${tokenId} (${response.status} ${response.statusText})`);
+      }
+      
+      const svgContent = await response.text();
+      console.log(`SVG chargé avec succès, taille: ${svgContent.length} caractères`);
+      
+      const extractedShapes = extractShapesFromSVG(svgContent);
+      
+      if (extractedShapes.length === 0) {
+        throw new Error("Aucune forme n'a été extraite du SVG");
+      }
+      
+      console.log(`Formes extraites: ${extractedShapes.length}`);
+      setShapes(extractedShapes);
+      onSVGLoad(extractedShapes);
+      setSvgPreview(svgContent);
+      
+      await renderPreview(svgContent, extractedShapes, selectedNfts);
+      setVerificationStatus(`SVG chargé avec succès pour le token ID: ${tokenId}`);
+      
+      return extractedShapes;
+    } catch (error) {
+      console.error("Erreur lors du chargement du SVG:", error);
+      setError(`Erreur lors du chargement du SVG: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  };
+
+  const handleCheckNFT = async () => {
+    if (!walletAddress) {
+      setError("Veuillez connecter votre wallet");
+      return;
+    }
+
+    setError('');
+    setCheckingNFT(true);
+    setVerificationStatus('Vérification de la propriété NFT...');
+    
+    try {
+      console.log(`Vérification de la propriété NFT pour l'adresse: ${walletAddress}`);
+      await checkOwnership(walletAddress);
+      
+      if (isOwner && tokenIds.length > 0) {
+        setVerificationStatus(`NFT trouvé! Token IDs: ${tokenIds.join(', ')}`);
+        console.log(`NFT trouvé pour l'adresse ${walletAddress}. Token IDs:`, tokenIds);
+        
+        const tokenId = tokenIds[0];
+        await loadSVGFromPublic(tokenId);
+      } else {
+        console.log(`Aucun NFT trouvé pour l'adresse ${walletAddress}`);
+        setError("Aucun NFT trouvé pour cette adresse wallet");
+        setVerificationStatus("Aucun NFT trouvé");
+      }
+    } catch (err) {
+      console.error("Erreur lors de la vérification de propriété NFT:", err);
+      setError(`Erreur lors de la vérification: ${err instanceof Error ? err.message : String(err)}`);
+      setVerificationStatus("Échec de la vérification");
+    } finally {
+      setCheckingNFT(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div
@@ -183,9 +249,60 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
         </div>
       </div>
       
+      <div className="flex flex-col mt-4 space-y-2">
+        <button
+          onClick={handleCheckNFT}
+          disabled={checkingNFT || !walletAddress || loading}
+          className={`flex items-center justify-center px-4 py-2 rounded-lg text-white ${
+            checkingNFT || !walletAddress || loading
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-blue-500 hover:bg-blue-600'
+          }`}
+        >
+          {checkingNFT ? (
+            <>
+              <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              Vérification...
+            </>
+          ) : (
+            <>
+              <CheckCircle className="w-4 h-4 mr-2" />
+              Vérifier propriété NFT
+            </>
+          )}
+        </button>
+        
+        {walletAddress && (
+          <div className="text-sm text-gray-600">
+            Wallet connecté: {walletAddress.substring(0, 6)}...{walletAddress.substring(walletAddress.length - 4)}
+          </div>
+        )}
+        
+        {isOwner && tokenIds.length > 0 && !error && (
+          <div className="text-sm text-green-600">
+            Vous possédez {tokenIds.length} NFT(s) de cette collection. Token IDs: {tokenIds.join(', ')}
+          </div>
+        )}
+      </div>
+      
       {error && (
         <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
           <p className="text-red-600 text-sm">{error}</p>
+        </div>
+      )}
+
+      {nftError && !error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-600 text-sm">{nftError}</p>
+        </div>
+      )}
+
+      {verificationStatus && !error && !nftError && (
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-blue-600 text-sm">{verificationStatus}</p>
         </div>
       )}
 
@@ -199,7 +316,7 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
             />
           </div>
           <p className="mt-2 text-sm text-gray-500">
-            Original dimensions: {Math.round(shapes[0].viewBox.width)} x {Math.round(shapes[0].viewBox.height)}
+            {shapes.length} shapes detected in the SVG
           </p>
         </div>
       )}

@@ -198,6 +198,7 @@ function App() {
                 <SVGUploader 
                   onSVGLoad={handleSVGLoad}
                   selectedNfts={nfts}
+                  walletAddress={address}
                 />
                 
                 {error && (
