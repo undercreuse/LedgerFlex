@@ -263,16 +263,24 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
       setError('');
       setVerificationStatus("Vérification de la propriété NFT...");
 
-      // Vérifier la propriété NFT
-      await checkOwnership(walletAddress);
+      console.log("=== DÉBUT DE LA VÉRIFICATION NFT ===");
+      console.log("Adresse du wallet:", walletAddress);
+      console.log("État initial - isOwner:", isOwner, "tokenIds:", tokenIds);
+
+      // Vérifier la propriété NFT et récupérer les résultats directement
+      const result = await checkOwnership(walletAddress);
       
-      // Utiliser les états mis à jour par le hook
-      if (isOwner && tokenIds.length > 0) {
-        console.log(`NFT trouvé! Token IDs: ${tokenIds.join(', ')}`);
-        setVerificationStatus(`NFT trouvé! Token IDs: ${tokenIds.join(', ')}`);
+      console.log("Résultats de checkOwnership:", result);
+      console.log("État après checkOwnership - isOwner:", isOwner, "tokenIds:", tokenIds);
+      
+      // Utiliser les résultats retournés directement par le hook
+      if (result.isOwner && result.tokenIds.length > 0) {
+        console.log(`NFT trouvé! Token IDs: ${result.tokenIds.join(', ')}`);
+        setVerificationStatus(`NFT trouvé! Token IDs: ${result.tokenIds.join(', ')}`);
         
         // Prendre le premier token ID trouvé
-        const tokenId = tokenIds[0];
+        const tokenId = result.tokenIds[0];
+        console.log("Token ID sélectionné pour chargement:", tokenId);
         
         // Charger directement le SVG correspondant
         await loadSVGFromPublic(tokenId);
@@ -281,6 +289,7 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
         setError("Aucun NFT trouvé pour cette adresse wallet");
         setVerificationStatus("Aucun NFT trouvé");
       }
+      console.log("=== FIN DE LA VÉRIFICATION NFT ===");
     } catch (err) {
       console.error("Erreur lors de la vérification de propriété NFT:", err);
       setError(`Erreur lors de la vérification: ${err instanceof Error ? err.message : String(err)}`);

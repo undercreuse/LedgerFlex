@@ -6,7 +6,7 @@ interface NFTOwnershipResult {
   tokenIds: string[];
   loading: boolean;
   error: string | null;
-  checkOwnership: (address: string) => Promise<void>;
+  checkOwnership: (address: string) => Promise<{ isOwner: boolean; tokenIds: string[] }>;
 }
 
 export const useNFTOwnership = (): NFTOwnershipResult => {
@@ -22,7 +22,7 @@ export const useNFTOwnership = (): NFTOwnershipResult => {
   const checkOwnership = useCallback(async (address: string) => {
     if (!address) {
       setError("Adresse wallet non spécifiée");
-      return;
+      return { isOwner: false, tokenIds: [] };
     }
 
     setLoading(true);
@@ -43,30 +43,37 @@ export const useNFTOwnership = (): NFTOwnershipResult => {
       const ownedNFTs = response.data.ownedNfts.filter((nft: any) => nft.balance > 0);
       console.log('NFTs possédés:', ownedNFTs);
       
+      let resultIsOwner = false;
+      let resultTokenIds: string[] = [];
+      
       if (ownedNFTs.length > 0) {
-        setIsOwner(true);
+        resultIsOwner = true;
         
         // Extraire les token IDs
-        const ids = ownedNFTs.map((nft: any) => {
+        resultTokenIds = ownedNFTs.map((nft: any) => {
           // Convertir le tokenId de hex à décimal si nécessaire
           const tokenId = nft.id.tokenId;
           return tokenId.startsWith('0x') ? parseInt(tokenId, 16).toString() : tokenId;
         });
         
-        console.log('Token IDs trouvés:', ids);
-        setTokenIds(ids);
+        console.log('Token IDs trouvés:', resultTokenIds);
+        setIsOwner(resultIsOwner);
+        setTokenIds(resultTokenIds);
       } else {
         console.log('Aucun NFT trouvé pour cette collection');
         setIsOwner(false);
         setTokenIds([]);
       }
+      
+      setLoading(false);
+      return { isOwner: resultIsOwner, tokenIds: resultTokenIds };
     } catch (err) {
       console.error("Erreur lors de la vérification de propriété NFT avec Alchemy:", err);
       setError("Impossible de vérifier la propriété des NFTs. Veuillez réessayer.");
       setIsOwner(false);
       setTokenIds([]);
-    } finally {
       setLoading(false);
+      return { isOwner: false, tokenIds: [] };
     }
   }, [contractAddress, alchemyApiKey]);
 
