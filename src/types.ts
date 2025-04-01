@@ -12,8 +12,11 @@ export interface SVGShape {
 }
 
 export interface NFTMetadata {
-  id: number;
+  id: string | number;
   imageUrl: string;
   name: string;
   tokenId: string;
+  chain?: string;
+  contractAddress?: string;
+  collection?: string;
 }

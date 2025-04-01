@@ -9,6 +9,7 @@ import { Download } from 'lucide-react';
 function App() {
   const [connected, setConnected] = useState(false);
   const [address, setAddress] = useState('');
+  const [chainId, setChainId] = useState<string | undefined>(undefined);
   const [shapes, setShapes] = useState<SVGShape[]>([]);
   const [nfts, setNfts] = useState<(NFTMetadata | undefined)[]>([]);
   const [maskedImages, setMaskedImages] = useState<HTMLCanvasElement[]>([]);
@@ -19,9 +20,10 @@ function App() {
   const [showFinalResult, setShowFinalResult] = useState(true); 
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
-  const handleConnect = (walletAddress: string) => {
+  const handleConnect = (walletAddress: string, selectedChainId?: string) => {
     setConnected(true);
     setAddress(walletAddress);
+    setChainId(selectedChainId);
   };
 
   const handleSVGLoad = (loadedShapes: SVGShape[], url: string) => {
@@ -485,12 +487,15 @@ function App() {
 
             <div className="flex-1 p-6 overflow-y-auto bg-gray-50">
               <div className="space-y-6">
-                {shapes.length > 0 && (
-                  <NFTSelector
-                    requiredCount={shapes.length}
-                    walletAddress={address}
-                    isProcessing={processing}
-                  />
+                {connected && (
+                  <div className="mb-8">
+                    <NFTSelector 
+                      walletAddress={address} 
+                      requiredCount={shapes.length} 
+                      isProcessing={processing}
+                      chainId={chainId}
+                    />
+                  </div>
                 )}
               </div>
             </div>
