@@ -27,7 +27,7 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
       previousSelectedNftsRef.current = selectedNfts;
       onNFTsSelected(selectedNfts);
     }
-  }, [selectedNfts]); // Intentionally omit onNFTsSelected to prevent infinite loop
+  }, [selectedNfts, onNFTsSelected]);
 
   const handleNFTSelect = (nft: NFTMetadata) => {
     if (isProcessing) return;
@@ -41,6 +41,17 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
       }
       return prev;
     });
+  };
+
+  // Fonction pour gérer le début du drag
+  const handleDragStart = (e: React.DragEvent<HTMLDivElement>, nft: NFTMetadata) => {
+    e.dataTransfer.setData('application/json', JSON.stringify(nft));
+    e.dataTransfer.effectAllowed = 'copy';
+    
+    // Créer une image de prévisualisation pour le drag
+    const img = new Image();
+    img.src = nft.imageUrl;
+    e.dataTransfer.setDragImage(img, 50, 50);
   };
 
   if (loading) {
@@ -76,15 +87,16 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
           const selectedIndex = selectedNfts.findIndex(n => n.id === nft.id);
           const isSelected = selectedIndex !== -1;
           return (
-            <button
+            <div
               key={nft.id}
+              draggable
+              onDragStart={(e) => handleDragStart(e, nft)}
               onClick={() => handleNFTSelect(nft)}
-              className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all ${
+              className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all cursor-grab ${
                 isSelected
                   ? 'border-blue-500 ring-2 ring-blue-200'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
-              disabled={isProcessing || (selectedNfts.length >= requiredCount && !isSelected)}
             >
               <img
                 src={nft.imageUrl}
@@ -107,7 +119,10 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
                   <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
                 </div>
               )}
-            </button>
+              <div className="absolute bottom-2 left-2 right-2 bg-black bg-opacity-70 text-white text-xs p-1 rounded truncate">
+                {nft.name || `NFT #${nft.tokenId}`}
+              </div>
+            </div>
           );
         })}
       </div>
@@ -117,6 +132,12 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
           No NFTs found for this address
         </p>
       )}
+      
+      <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
+        <p className="text-sm text-blue-700">
+          <strong>Astuce :</strong> Vous pouvez glisser-déposer les NFTs directement sur les cellules du SVG pour les placer précisément où vous le souhaitez.
+        </p>
+      </div>
     </div>
   );
 };

@@ -29,6 +29,36 @@ function App() {
     setError(null);
   };
 
+  // Fonction pour gérer le drop d'un NFT sur une cellule spécifique
+  const handleCellDrop = (cellIndex: number, nft: NFTMetadata) => {
+    if (processing) return;
+    
+    try {
+      // Créer une nouvelle liste de NFTs avec le NFT déposé à la position cellIndex
+      const newNfts = [...nfts];
+      
+      // Si cette cellule est déjà occupée, on échange les NFTs
+      const existingNftIndex = newNfts.findIndex(n => n && n.id === nft.id);
+      
+      // Mettre à jour la cellule avec le nouveau NFT
+      newNfts[cellIndex] = nft;
+      
+      // Si le NFT était déjà dans une autre cellule, la vider
+      if (existingNftIndex !== -1 && existingNftIndex !== cellIndex) {
+        newNfts[existingNftIndex] = undefined as any;
+      }
+      
+      // Mettre à jour l'état
+      setNfts(newNfts);
+      
+      // Traiter le NFT comme s'il avait été sélectionné
+      handleNFTsSelected(newNfts.filter(Boolean));
+    } catch (err) {
+      console.error('Erreur lors du traitement du drop:', err);
+      setError(err instanceof Error ? err.message : 'Erreur lors du traitement du drop');
+    }
+  };
+
   const mergeMaskedImages = async (
     images: HTMLCanvasElement[],
     finalCanvas: HTMLCanvasElement,
@@ -199,6 +229,7 @@ function App() {
                   onSVGLoad={handleSVGLoad}
                   selectedNfts={nfts}
                   walletAddress={address}
+                  onCellDrop={handleCellDrop}
                 />
                 
                 {error && (

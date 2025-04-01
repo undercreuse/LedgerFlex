@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload } from 'lucide-react';
 import { SVGShape, NFTMetadata } from '../types';
@@ -9,9 +9,15 @@ interface SVGUploaderProps {
   onSVGLoad: (shapes: SVGShape[]) => void;
   selectedNfts?: NFTMetadata[];
   walletAddress?: string;
+  onCellDrop?: (cellIndex: number, nft: NFTMetadata) => void;
 }
 
-export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNfts = [], walletAddress }) => {
+export const SVGUploader: React.FC<SVGUploaderProps> = ({ 
+  onSVGLoad, 
+  selectedNfts = [], 
+  walletAddress,
+  onCellDrop 
+}) => {
   const [error, setError] = React.useState<string>('');
   const [svgPreview, setSvgPreview] = React.useState<string | null>(null);
   const previewCanvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -20,8 +26,33 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
   const [checkingNFT, setCheckingNFT] = React.useState<boolean>(false);
   const [verificationStatus, setVerificationStatus] = React.useState<string>('');
   const [showDragDrop] = React.useState<boolean>(false);
+  const [dragOverCell, setDragOverCell] = React.useState<number | null>(null);
 
-  React.useEffect(() => {
+  // Fonction pour gérer le drop d'un NFT sur une cellule
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>, cellIndex: number) => {
+    e.preventDefault();
+    setDragOverCell(cellIndex);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverCell(null);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>, cellIndex: number) => {
+    e.preventDefault();
+    setDragOverCell(null);
+    
+    try {
+      const nftData = JSON.parse(e.dataTransfer.getData('application/json'));
+      if (nftData && onCellDrop) {
+        onCellDrop(cellIndex, nftData);
+      }
+    } catch (err) {
+      console.error('Erreur lors du drop:', err);
+    }
+  };
+
+  useEffect(() => {
     if (isOwner && tokenIds.length > 0) {
       setError('');
       setVerificationStatus(`NFT trouvé! Token IDs: ${tokenIds.join(', ')}`);
@@ -129,7 +160,7 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
     });
   };
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (svgPreview && shapes.length > 0) {
       renderPreview(svgPreview, shapes, selectedNfts).catch(err => {
         console.error('Error updating preview:', err);
@@ -370,7 +401,7 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
           </div>
         )}
         
-        {/* Aperçu du SVG */}
+        {/* Aperçu du SVG avec zones de drop */}
         {svgPreview && (
           <div className="mt-4">
             <h3 className="text-lg font-medium mb-2">Aperçu</h3>
@@ -379,7 +410,66 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
                 ref={previewCanvasRef}
                 className="absolute inset-0 w-full h-full"
               />
+              
+              {/* Zones de drop superposées sur le canvas */}
+              {shapes.length > 0 && (
+                <div className="absolute inset-0">
+                  {shapes.map((shape, index) => {
+                    const isOccupied = selectedNfts[index] !== undefined;
+                    const isDragOver = dragOverCell === index;
+                    
+                    // Calculer la position relative dans le conteneur de preview
+                    const previewWidth = 250;
+                    const previewHeight = 300;
+                    const viewBox = shape.viewBox;
+                    
+                    const scaleX = previewWidth / viewBox.width;
+                    const scaleY = previewHeight / viewBox.height;
+                    const scale = Math.min(scaleX, scaleY);
+                    
+                    const x = (shape.center.x - viewBox.minX) * scale;
+                    const y = (shape.center.y - viewBox.minY) * scale;
+                    const width = shape.bounds.width * scale;
+                    const height = shape.bounds.height * scale;
+                    
+                    return (
+                      <div
+                        key={`drop-zone-${index}`}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDragLeave={handleDragLeave}
+                        onDrop={(e) => handleDrop(e, index)}
+                        style={{
+                          position: 'absolute',
+                          left: x - width / 2,
+                          top: y - height / 2,
+                          width: width,
+                          height: height,
+                          borderRadius: '50%',
+                          cursor: 'pointer',
+                          backgroundColor: isDragOver ? 'rgba(59, 130, 246, 0.3)' : 'transparent',
+                          border: isDragOver ? '2px dashed #3b82f6' : 'none',
+                          zIndex: 10,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        {!isOccupied && !isDragOver && (
+                          <span className="text-xs font-bold text-white bg-gray-800 bg-opacity-70 px-2 py-1 rounded-full">
+                            {index + 1}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
+            
+            {/* Instructions pour le drag & drop */}
+            <p className="text-sm text-gray-500 mt-2 text-center">
+              Glissez et déposez vos NFTs sur les cellules numérotées
+            </p>
           </div>
         )}
       </div>
