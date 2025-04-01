@@ -157,77 +157,124 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
     }
   });
 
+  // Fonction pour charger un SVG depuis le dossier public/svg
   const loadSVGFromPublic = async (tokenId: string) => {
     try {
+      console.log(`===== DÉBUT DU CHARGEMENT DU SVG POUR TOKEN ID: ${tokenId} =====`);
       setVerificationStatus(`Chargement du SVG pour le token ID: ${tokenId}...`);
-      const svgPath = `/svg/mask_${tokenId}.svg`;
+      setError('');
+      
+      // Utiliser l'URL complète avec le chemin de base de l'application
+      const baseUrl = window.location.origin;
+      const svgPath = `${baseUrl}/svg/mask_${tokenId}.svg`;
       console.log(`Tentative de chargement du SVG depuis: ${svgPath}`);
       
-      const response = await fetch(svgPath);
-      if (!response.ok) {
-        throw new Error(`Impossible de charger le SVG pour le token ID ${tokenId} (${response.status} ${response.statusText})`);
-      }
-      
-      const svgContent = await response.text();
-      console.log(`SVG chargé avec succès, taille: ${svgContent.length} caractères`);
-      
-      // Traiter le SVG exactement comme dans la fonction onDrop du drag and drop
+      // Vérifier si le fichier existe dans le dossier public
       try {
-        const extractedShapes = extractShapesFromSVG(svgContent);
-        if (extractedShapes.length === 0) {
-          setError('Aucune forme n\'a été trouvée dans le SVG');
-          return null;
+        const response = await fetch(svgPath, {
+          headers: {
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache'
+          }
+        });
+        console.log(`Statut de la réponse: ${response.status} ${response.statusText}`);
+        
+        if (!response.ok) {
+          throw new Error(`Impossible de charger le SVG pour le token ID ${tokenId} (${response.status} ${response.statusText})`);
         }
-
+        
+        const svgContent = await response.text();
+        console.log(`SVG chargé avec succès, taille: ${svgContent.length} caractères`);
+        console.log(`Début du contenu SVG: ${svgContent.substring(0, 100)}...`);
+        
+        // Vérifier que le contenu SVG est valide
+        if (!svgContent || svgContent.trim() === '') {
+          throw new Error('Le fichier SVG est vide');
+        }
+        
+        if (!svgContent.includes('<svg')) {
+          throw new Error('Le fichier ne semble pas être un SVG valide');
+        }
+        
+        // Extraire les formes du SVG
+        console.log('Extraction des formes du SVG...');
+        const extractedShapes = extractShapesFromSVG(svgContent);
+        console.log('Extraction terminée, résultat:', extractedShapes);
+        
+        if (extractedShapes.length === 0) {
+          throw new Error('Aucune forme n\'a été trouvée dans le SVG');
+        }
+        
         console.log(`Formes extraites: ${extractedShapes.length}`);
         
-        // Important: mettre à jour l'état dans le même ordre que dans onDrop
+        // Mettre à jour l'état dans le même ordre que dans onDrop
+        console.log('Mise à jour de l\'état...');
         setShapes(extractedShapes);
         onSVGLoad(extractedShapes);
         setSvgPreview(svgContent);
-
-        // Créer un blob et une URL pour l'aperçu, comme dans renderPreview
-        const blob = new Blob([svgContent], { type: 'image/svg+xml' });
-        const url = URL.createObjectURL(blob);
         
-        console.log("URL créée pour l'aperçu:", url);
+        // Attendre que l'état soit mis à jour
+        console.log('Attente de la mise à jour de l\'état...');
+        await new Promise(resolve => setTimeout(resolve, 500));
         
         // Rendre l'aperçu
-        await renderPreview(svgContent, extractedShapes, selectedNfts);
-        setVerificationStatus(`SVG chargé avec succès pour le token ID: ${tokenId}`);
+        console.log('Rendu de l\'aperçu SVG...');
+        console.log('État actuel: shapes =', shapes.length, 'svgPreview =', svgPreview ? 'présent' : 'absent');
+        console.log('Canvas disponible:', previewCanvasRef.current ? 'oui' : 'non');
         
+        // Utiliser les formes extraites directement plutôt que de compter sur l'état mis à jour
+        await renderPreview(svgContent, extractedShapes, []);
+        console.log('Rendu terminé avec succès');
+        
+        setVerificationStatus(`SVG chargé avec succès pour le token ID: ${tokenId}`);
+        console.log(`===== FIN DU CHARGEMENT DU SVG POUR TOKEN ID: ${tokenId} =====`);
         return extractedShapes;
-      } catch (err) {
-        console.error('Erreur lors de l\'extraction des formes:', err);
-        setError('Erreur lors de l\'extraction des formes du SVG');
-        return null;
+      } catch (fetchError) {
+        console.error("Erreur lors du fetch du SVG:", fetchError);
+        
+        // Afficher la liste des fichiers disponibles dans le dossier public/svg
+        console.log("Vérification des fichiers disponibles dans le dossier public/svg...");
+        try {
+          const response = await fetch(`${baseUrl}/svg/`);
+          console.log("Réponse du dossier:", response.status, response.statusText);
+        } catch (dirError) {
+          console.error("Impossible de lister le dossier:", dirError);
+        }
+        
+        throw fetchError;
       }
     } catch (error) {
       console.error("Erreur lors du chargement du SVG:", error);
       setError(`Erreur lors du chargement du SVG: ${error instanceof Error ? error.message : String(error)}`);
+      setSvgPreview(null);
+      console.log(`===== ÉCHEC DU CHARGEMENT DU SVG POUR TOKEN ID: ${tokenId} =====`);
       return null;
     }
   };
 
   const handleCheckNFT = async () => {
     if (!walletAddress) {
-      setError("Veuillez connecter votre wallet");
+      setError("Veuillez connecter votre wallet pour vérifier la propriété NFT");
       return;
     }
 
-    setError('');
-    setCheckingNFT(true);
-    setVerificationStatus('Vérification de la propriété NFT...');
-    
     try {
-      console.log(`Vérification de la propriété NFT pour l'adresse: ${walletAddress}`);
+      setCheckingNFT(true);
+      setError('');
+      setVerificationStatus("Vérification de la propriété NFT...");
+
+      // Vérifier la propriété NFT
       await checkOwnership(walletAddress);
       
+      // Utiliser les états mis à jour par le hook
       if (isOwner && tokenIds.length > 0) {
+        console.log(`NFT trouvé! Token IDs: ${tokenIds.join(', ')}`);
         setVerificationStatus(`NFT trouvé! Token IDs: ${tokenIds.join(', ')}`);
-        console.log(`NFT trouvé pour l'adresse ${walletAddress}. Token IDs:`, tokenIds);
         
+        // Prendre le premier token ID trouvé
         const tokenId = tokenIds[0];
+        
+        // Charger directement le SVG correspondant
         await loadSVGFromPublic(tokenId);
       } else {
         console.log(`Aucun NFT trouvé pour l'adresse ${walletAddress}`);
