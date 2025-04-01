@@ -171,21 +171,37 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({ onSVGLoad, selectedNft
       const svgContent = await response.text();
       console.log(`SVG chargé avec succès, taille: ${svgContent.length} caractères`);
       
-      const extractedShapes = extractShapesFromSVG(svgContent);
-      
-      if (extractedShapes.length === 0) {
-        throw new Error("Aucune forme n'a été extraite du SVG");
+      // Traiter le SVG exactement comme dans la fonction onDrop du drag and drop
+      try {
+        const extractedShapes = extractShapesFromSVG(svgContent);
+        if (extractedShapes.length === 0) {
+          setError('Aucune forme n\'a été trouvée dans le SVG');
+          return null;
+        }
+
+        console.log(`Formes extraites: ${extractedShapes.length}`);
+        
+        // Important: mettre à jour l'état dans le même ordre que dans onDrop
+        setShapes(extractedShapes);
+        onSVGLoad(extractedShapes);
+        setSvgPreview(svgContent);
+
+        // Créer un blob et une URL pour l'aperçu, comme dans renderPreview
+        const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+        const url = URL.createObjectURL(blob);
+        
+        console.log("URL créée pour l'aperçu:", url);
+        
+        // Rendre l'aperçu
+        await renderPreview(svgContent, extractedShapes, selectedNfts);
+        setVerificationStatus(`SVG chargé avec succès pour le token ID: ${tokenId}`);
+        
+        return extractedShapes;
+      } catch (err) {
+        console.error('Erreur lors de l\'extraction des formes:', err);
+        setError('Erreur lors de l\'extraction des formes du SVG');
+        return null;
       }
-      
-      console.log(`Formes extraites: ${extractedShapes.length}`);
-      setShapes(extractedShapes);
-      onSVGLoad(extractedShapes);
-      setSvgPreview(svgContent);
-      
-      await renderPreview(svgContent, extractedShapes, selectedNfts);
-      setVerificationStatus(`SVG chargé avec succès pour le token ID: ${tokenId}`);
-      
-      return extractedShapes;
     } catch (error) {
       console.error("Erreur lors du chargement du SVG:", error);
       setError(`Erreur lors du chargement du SVG: ${error instanceof Error ? error.message : String(error)}`);
