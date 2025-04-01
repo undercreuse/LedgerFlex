@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wallet, ChevronDown } from 'lucide-react';
+import { Wallet, ChevronDown, LogOut, Check } from 'lucide-react';
 import { ethers } from 'ethers';
 import { SUPPORTED_CHAINS } from '../hooks/useNFTs';
 
@@ -40,7 +40,7 @@ export const Web3Connect: React.FC<Web3ConnectProps> = ({ onConnect }) => {
   const [networkId, setNetworkId] = useState<string>('');
   const [selectedChainId, setSelectedChainId] = useState<string | undefined>(undefined);
   const [showManualInput, setShowManualInput] = useState<boolean>(false);
-  const [showNetworkSelector, setShowNetworkSelector] = useState<boolean>(false);
+  const [showDropdown, setShowDropdown] = useState<boolean>(false);
 
   // Vérifier si MetaMask est installé
   const checkIfWalletIsInstalled = () => {
@@ -189,6 +189,14 @@ export const Web3Connect: React.FC<Web3ConnectProps> = ({ onConnect }) => {
     }
   };
 
+  // Déconnecter le wallet
+  const disconnectWallet = () => {
+    setAddress('');
+    setIsConnected(false);
+    setShowDropdown(false);
+    onConnect('', undefined);
+  };
+
   // Obtenir le nom du réseau actuel
   const getNetworkName = () => {
     return networkId && NETWORKS[networkId] 
@@ -199,7 +207,7 @@ export const Web3Connect: React.FC<Web3ConnectProps> = ({ onConnect }) => {
   };
 
   // Obtenir la couleur du réseau actuel
-  const getNetworkColor = () => {
+  const getNetworkColorClass = () => {
     return networkId && NETWORKS[networkId] 
       ? NETWORKS[networkId].color 
       : 'bg-gray-500';
@@ -208,7 +216,7 @@ export const Web3Connect: React.FC<Web3ConnectProps> = ({ onConnect }) => {
   // Changer de réseau
   const switchNetwork = async (chainId: string) => {
     setSelectedChainId(chainId);
-    setShowNetworkSelector(false);
+    setShowDropdown(false);
     
     // Si l'utilisateur est connecté, mettre à jour la connexion avec le nouveau réseau
     if (isConnected && address) {
@@ -231,161 +239,117 @@ export const Web3Connect: React.FC<Web3ConnectProps> = ({ onConnect }) => {
     }
   };
 
+  // Rendu du header compact
   return (
-    <div className="mb-6 p-4 bg-white rounded-lg shadow-md">
-      <h2 className="text-xl font-semibold mb-4">Connexion Web3</h2>
+    <header style={{ backgroundColor: '#1D4E51' }} className="flex justify-between items-center h-16 px-4 shadow-md">
+      {/* Logo */}
+      <div className="flex items-center">
+        <img src="/unum.png" alt="Unum Logo" className="h-10" />
+      </div>
       
+      {/* Erreur */}
       {error && (
-        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">
-          {error}
-        </div>
+        <div className="text-sm text-red-300 mx-4">{error}</div>
       )}
       
-      {isConnected ? (
-        <div className="mb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 mb-1">Adresse connectée:</p>
-              <p className="font-mono text-sm break-all">{address}</p>
-            </div>
-            
-            <div className="flex flex-col items-end">
-              <div className="relative">
-                <button
-                  onClick={() => setShowNetworkSelector(!showNetworkSelector)}
-                  className="flex items-center text-sm font-medium px-3 py-2 rounded-md border border-gray-300 hover:bg-gray-50"
-                >
-                  <div className={`w-3 h-3 rounded-full mr-2 ${getNetworkColor()}`}></div>
-                  <span>{getNetworkName()}</span>
-                  <ChevronDown className="ml-2 w-4 h-4" />
-                </button>
-                
-                {showNetworkSelector && (
-                  <div className="absolute right-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-10">
-                    <div className="py-1">
-                      {Object.entries(NETWORKS).map(([chainId, network]) => (
-                        <button
-                          key={chainId}
-                          onClick={() => switchNetwork(chainId)}
-                          className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center"
-                        >
-                          <div className={`w-3 h-3 rounded-full mr-2 ${network.color}`}></div>
-                          <span>{network.name}</span>
-                          {chainId === networkId && (
-                            <span className="ml-auto text-green-500">✓</span>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              
-              <div className="mt-2">
-                <div className={`px-2 py-1 rounded-md text-xs font-medium text-white ${getNetworkColor()} inline-block`}>
-                  {getNetworkName()}
-                </div>
-              </div>
-            </div>
+      {/* Bouton de connexion ou informations du wallet */}
+      <div className="relative">
+        {isConnected ? (
+          <button 
+            onClick={() => setShowDropdown(!showDropdown)}
+            className="flex items-center space-x-2 px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 transition-colors text-white"
+          >
+            <div className={`w-2 h-2 rounded-full ${getNetworkColorClass()}`} />
+            <span className="text-sm font-medium">
+              {address.substring(0, 6)}...{address.substring(address.length - 4)}
+            </span>
+            <ChevronDown className="w-4 h-4" />
+          </button>
+        ) : showManualInput ? (
+          <div className="flex items-center">
+            <input
+              type="text"
+              value={manualAddress}
+              onChange={(e) => setManualAddress(e.target.value)}
+              placeholder="Adresse Ethereum (0x...)"
+              className="mr-2 px-3 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+            />
+            <button
+              onClick={connectWithAddress}
+              className="px-3 py-1 text-sm bg-white text-[#1D4E51] rounded-md hover:bg-gray-100"
+            >
+              Connecter
+            </button>
+            <button
+              onClick={() => setShowManualInput(false)}
+              className="ml-2 px-3 py-1 text-sm text-white/80 hover:text-white"
+            >
+              Annuler
+            </button>
           </div>
-        </div>
-      ) : (
-        <div>
-          <div className="mb-4">
+        ) : (
+          <div className="flex items-center">
             <button
               onClick={connectWallet}
-              className="flex items-center justify-center w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              className="px-3 py-1.5 bg-white text-[#1D4E51] rounded-md hover:bg-gray-100 flex items-center"
             >
-              <Wallet className="mr-2 h-5 w-5" />
-              Connecter avec MetaMask
+              <Wallet className="w-4 h-4 mr-1.5" />
+              <span className="text-sm">Connecter Wallet</span>
             </button>
-          </div>
-          
-          <div className="flex items-center my-4">
-            <div className="flex-grow h-px bg-gray-300"></div>
-            <span className="px-3 text-gray-500 text-sm">ou</span>
-            <div className="flex-grow h-px bg-gray-300"></div>
-          </div>
-          
-          <div className="mb-2">
             <button
-              onClick={() => setShowManualInput(!showManualInput)}
-              className="text-blue-600 hover:underline text-sm flex items-center"
+              onClick={() => setShowManualInput(true)}
+              className="ml-2 text-sm text-white/80 hover:text-white"
             >
-              {showManualInput ? 'Masquer' : 'Entrer une adresse manuellement'}
-              <ChevronDown className={`ml-1 w-4 h-4 transform ${showManualInput ? 'rotate-180' : ''}`} />
+              Adresse manuelle
             </button>
           </div>
-          
-          {showManualInput && (
-            <div className="mt-3">
-              <div className="relative">
-                <input
-                  type="text"
-                  value={manualAddress}
-                  onChange={(e) => setManualAddress(e.target.value)}
-                  placeholder="Entrer une adresse Ethereum (0x...)"
-                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                />
-                
-                <div className="mt-3 relative">
-                  <button
-                    onClick={() => setShowNetworkSelector(!showNetworkSelector)}
-                    className="flex items-center text-sm font-medium px-3 py-2 rounded-md border border-gray-300 hover:bg-gray-50 w-full"
-                  >
-                    <span>Sélectionner un réseau</span>
-                    <ChevronDown className="ml-auto w-4 h-4" />
-                  </button>
-                  
-                  {showNetworkSelector && (
-                    <div className="absolute left-0 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg z-10">
-                      <div className="py-1">
-                        {Object.entries(NETWORKS).map(([chainId, network]) => (
-                          <button
-                            key={chainId}
-                            onClick={() => switchNetwork(chainId)}
-                            className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center"
-                          >
-                            <div className={`w-3 h-3 rounded-full mr-2 ${network.color}`}></div>
-                            <span>{network.name}</span>
-                            {chainId === selectedChainId && (
-                              <span className="ml-auto text-green-500">✓</span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
+        )}
+        
+        {/* Dropdown pour le wallet connecté */}
+        {showDropdown && isConnected && (
+          <div className="absolute right-0 mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+            <div className="p-3 border-b border-gray-200">
+              <p className="text-xs text-gray-500 mb-1">Adresse connectée</p>
+              <p className="text-xs font-mono break-all">{address}</p>
+            </div>
+            
+            <div className="p-3 border-b border-gray-200">
+              <p className="text-xs text-gray-500 mb-2">Réseau actuel</p>
+              <div className="flex items-center">
+                <div className={`w-3 h-3 rounded-full mr-2 ${getNetworkColorClass()}`} />
+                <span className="text-sm">{getNetworkName()}</span>
               </div>
-              
-              <button
-                onClick={connectWithAddress}
-                className="mt-3 w-full py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-              >
-                Connecter
-              </button>
             </div>
-          )}
-          
-          {!checkIfWalletIsInstalled() && (
-            <div className="mt-4 text-sm text-gray-600">
-              <p>
-                Aucun wallet compatible Ethereum détecté. Veuillez installer{' '}
-                <a
-                  href="https://metamask.io/download.html"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:underline"
-                >
-                  MetaMask
-                </a>{' '}
-                ou utiliser l'option "Entrer une adresse manuellement".
-              </p>
+            
+            <div className="p-3 border-b border-gray-200">
+              <p className="text-xs text-gray-500 mb-2">Changer de réseau</p>
+              <div className="max-h-48 overflow-y-auto">
+                {Object.entries(NETWORKS).map(([chainId, network]) => (
+                  <button
+                    key={chainId}
+                    onClick={() => switchNetwork(chainId)}
+                    className="w-full flex items-center text-left px-2 py-1.5 hover:bg-gray-100 rounded-md mb-1"
+                  >
+                    <div className={`w-3 h-3 rounded-full mr-2 ${network.color}`} />
+                    <span className="text-sm">{network.name}</span>
+                    {chainId === networkId && (
+                      <Check className="ml-auto w-4 h-4 text-green-500" />
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
-        </div>
-      )}
-    </div>
+            
+            <button
+              onClick={disconnectWallet}
+              className="w-full flex items-center text-left p-3 text-red-600 hover:bg-red-50"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              <span className="text-sm">Déconnecter</span>
+            </button>
+          </div>
+        )}
+      </div>
+    </header>
   );
 };

@@ -17,10 +17,17 @@ function App() {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [svgUrl, setSvgUrl] = useState<string>(''); 
-  const [showFinalResult, setShowFinalResult] = useState(true); 
+  const [showFinalResult, setShowFinalResult] = useState(true);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
   const handleConnect = (walletAddress: string, selectedChainId?: string) => {
+    if (!walletAddress) {
+      setConnected(false);
+      setAddress('');
+      setChainId(undefined);
+      return;
+    }
+    
     setConnected(true);
     setAddress(walletAddress);
     setChainId(selectedChainId);
@@ -393,13 +400,10 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col">
-      <header className="w-full bg-white shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <Web3Connect onConnect={handleConnect} />
-        </div>
-      </header>
-
+    <div className="flex flex-col min-h-screen bg-gray-100">
+      {/* Header avec Web3Connect */}
+      <Web3Connect onConnect={handleConnect} />
+      
       <main className="flex-1">
         {!connected ? (
           <div className="flex items-center justify-center h-full p-8">
@@ -412,13 +416,14 @@ function App() {
           </div>
         ) : (
           <div className="flex h-[calc(100vh-80px)] overflow-hidden">
+            {/* Colonne de gauche */}
             <div className="w-1/3 p-6 overflow-y-auto border-r border-gray-200 bg-white">
               <div className="space-y-6">
                 <SVGUploader 
                   onSVGLoad={handleSVGLoad}
+                  selectedNfts={nfts}
                   walletAddress={address}
                   onCellDrop={handleCellDrop}
-                  selectedNfts={nfts}
                 />
                 
                 {error && (
@@ -438,7 +443,7 @@ function App() {
                 {(finalImage || svgUrl) && (
                   <div className="bg-white p-6 rounded-lg shadow-md">
                     <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-semibold">Final Result</h3>
+                      <h3 className="text-lg font-semibold">Résultat final</h3>
                       <button
                         onClick={() => setShowFinalResult(!showFinalResult)}
                         className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded text-sm"
@@ -453,20 +458,14 @@ function App() {
                       {finalImage ? (
                         <img 
                           src={finalImage} 
-                          alt="Processed NFT Composition" 
+                          alt="Composition NFT traitée" 
                           className="w-full h-auto"
                         />
                       ) : (
                         <div className="h-64 flex items-center justify-center">
                           <p className="text-gray-500">
-                            {processing ? 'Processing...' : 'No image generated yet'}
+                            {processing ? 'Traitement en cours...' : 'Aucune image générée pour le moment'}
                           </p>
-                        </div>
-                      )}
-                      
-                      {error && (
-                        <div className="mt-4 p-3 bg-red-100 text-red-700 rounded">
-                          <p>{error}</p>
                         </div>
                       )}
                     </div>
@@ -475,6 +474,7 @@ function App() {
                       <button
                         onClick={handleDownloadImage}
                         className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center"
+                        disabled={!finalImage}
                       >
                         <Download className="w-5 h-5 mr-2" />
                         Télécharger l'image
@@ -485,6 +485,7 @@ function App() {
               </div>
             </div>
 
+            {/* Colonne de droite */}
             <div className="flex-1 p-6 overflow-y-auto bg-gray-50">
               <div className="space-y-6">
                 {connected && (
@@ -499,13 +500,11 @@ function App() {
                 )}
               </div>
             </div>
-
-            <canvas
-              ref={canvasRef}
-              className="hidden"
-            />
           </div>
         )}
+        
+        {/* Canvas caché pour le traitement */}
+        <canvas ref={canvasRef} style={{ display: 'none' }} />
       </main>
     </div>
   );
