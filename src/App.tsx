@@ -13,10 +13,11 @@ function App() {
   const [nfts, setNfts] = useState<(NFTMetadata | undefined)[]>([]);
   const [maskedImages, setMaskedImages] = useState<HTMLCanvasElement[]>([]);
   const [finalImage, setFinalImage] = useState<string | null>(null);
-  const [svgUrl, setSvgUrl] = useState<string>(''); // Changé de null à chaîne vide
-  const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [svgUrl, setSvgUrl] = useState<string>(''); 
+  const [showFinalResult, setShowFinalResult] = useState(true); 
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
   const handleConnect = (walletAddress: string) => {
     setConnected(true);
@@ -32,7 +33,6 @@ function App() {
     setSvgUrl(url);
   };
 
-  // Fonction pour gérer le drop d'un NFT sur une cellule spécifique
   const handleCellDrop = (cellIndex: number, nft: NFTMetadata | undefined) => {
     if (processing) return;
     
@@ -40,27 +40,25 @@ function App() {
       setError(null);
       setProcessing(true);
       
-      // Créer une copie du tableau actuel
       const updatedNfts = [...nfts];
       
       if (nft === undefined) {
-        // Si nft est undefined, cela signifie qu'on veut supprimer le NFT de cette cellule
         updatedNfts[cellIndex] = undefined;
         console.log(`NFT supprimé de la cellule ${cellIndex + 1}`);
       } else {
-        // Sinon, on ajoute ou remplace le NFT dans cette cellule
         updatedNfts[cellIndex] = nft;
         console.log(`NFT ${nft.name} placé dans la cellule ${cellIndex + 1}`);
       }
       
-      // Mettre à jour l'état
+      // Mettre à jour l'état des NFTs
       setNfts(updatedNfts);
       
       // Réinitialiser l'image finale car elle n'est plus à jour
       setFinalImage(null);
       
-      // Traiter les images masquées
-      processNFTImages(updatedNfts.filter(Boolean));
+      // Traiter immédiatement les images masquées avec les NFTs mis à jour
+      // Utiliser directement updatedNfts au lieu de filtrer selectedNfts
+      processNFTImages(updatedNfts);
     } catch (err) {
       console.error('Erreur lors du traitement du drop:', err);
       setError(err instanceof Error ? err.message : 'Erreur lors du traitement du drop');
@@ -72,7 +70,7 @@ function App() {
     images: HTMLCanvasElement[],
     finalCanvas: HTMLCanvasElement,
     viewBox: SVGShape['viewBox']
-  ) => {
+  ): Promise<string> => {
     finalCanvas.width = viewBox.width;
     finalCanvas.height = viewBox.height;
 
@@ -80,21 +78,53 @@ function App() {
     if (!ctx) throw new Error('Could not get canvas context');
 
     ctx.clearRect(0, 0, finalCanvas.width, finalCanvas.height);
+    
+    // Ajouter un fond blanc
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
 
-    // Récupérer le token ID à partir de l'URL ou d'autres sources
-    let tokenId = '1'; // Valeur par défaut
+    let tokenId = '1'; 
     try {
-      // Rechercher dans l'URL si disponible
-      const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
-      if (urlMatch && urlMatch[1]) {
-        tokenId = urlMatch[1];
+      // Extraire le token ID du SVG s'il est disponible
+      if (svgUrl) {
+        try {
+          const svgResponse = await fetch(svgUrl);
+          const svgContent = await svgResponse.text();
+          console.log("SVG Content pour détection du token ID (rendu final):", svgContent.substring(0, 200));
+          
+          const svgMatch = svgContent.match(/mask_(\d+)\.svg/);
+          if (svgMatch && svgMatch[1]) {
+            tokenId = svgMatch[1];
+            console.log(`Token ID détecté depuis le SVG pour le rendu final: ${tokenId}`);
+          }
+        } catch (err) {
+          console.warn('Erreur lors de l\'extraction du token ID depuis le SVG:', err);
+        }
       }
-      console.log(`Token ID détecté pour le rendu final: ${tokenId}`);
+      
+      // Si le token ID n'est pas dans le SVG, essayer de l'extraire de l'URL
+      if (tokenId === '1') {
+        const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
+        if (urlMatch && urlMatch[1]) {
+          tokenId = urlMatch[1];
+          console.log(`Token ID détecté depuis l'URL pour le rendu final: ${tokenId}`);
+        } else {
+          console.warn("Impossible de détecter le token ID pour le rendu final, utilisation de la valeur par défaut: 1");
+        }
+      }
     } catch (err) {
       console.warn('Impossible de détecter le token ID pour le rendu final:', err);
     }
 
-    // Charger l'image d'alvéoles en arrière-plan
+    // Forcer le token ID à être une chaîne de caractères
+    tokenId = String(tokenId);
+    console.log(`Token ID final pour le rendu final: ${tokenId}`);
+
+    // Définir explicitement l'URL de l'image d'alvéoles
+    const baseUrl = window.location.origin;
+    const alveoleUrl = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
+    console.log(`URL de l'image d'alvéoles à charger pour le rendu final: ${alveoleUrl}`);
+
     try {
       await new Promise<void>((resolve) => {
         const alveoleImg = new Image();
@@ -102,30 +132,28 @@ function App() {
         
         const timeoutId = setTimeout(() => {
           console.warn(`Timeout lors du chargement de l'image d'alvéoles pour le rendu final`);
-          resolve(); // Continuer sans l'image d'alvéoles
+          resolve(); 
         }, 5000);
         
         alveoleImg.onload = () => {
           clearTimeout(timeoutId);
-          // Dessiner l'image d'alvéoles complète en arrière-plan
+          console.log(`Image d'alvéoles chargée avec succès pour le rendu final: alveoles_${tokenId}.png`);
           ctx.drawImage(alveoleImg, 0, 0, finalCanvas.width, finalCanvas.height);
           resolve();
         };
         
         alveoleImg.onerror = () => {
           clearTimeout(timeoutId);
-          console.error(`Erreur lors du chargement de l'image d'alvéoles pour le rendu final`);
-          resolve(); // Continuer sans l'image d'alvéoles
+          console.error(`Erreur lors du chargement de l'image d'alvéoles pour le rendu final: alveoles_${tokenId}.png`);
+          resolve(); 
         };
         
-        const baseUrl = window.location.origin;
-        alveoleImg.src = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
+        alveoleImg.src = alveoleUrl;
       });
     } catch (err) {
       console.error('Erreur lors du chargement de l\'image d\'alvéoles pour le rendu final:', err);
     }
 
-    // Draw all masked images in order
     for (const canvas of images) {
       if (canvas.width === 0 || canvas.height === 0) {
         throw new Error('Invalid masked image dimensions');
@@ -133,47 +161,30 @@ function App() {
       ctx.drawImage(canvas, 0, 0);
     }
 
-    const dataUrl = finalCanvas.toDataURL('image/png', 1.0);
-    if (!dataUrl || dataUrl === 'data:,' || dataUrl === 'data:image/png;base64,') {
-      throw new Error('Failed to generate valid final image');
-    }
-
+    const dataUrl = finalCanvas.toDataURL('image/png');
     return dataUrl;
   };
 
-  // Fonction pour traiter les images NFT et créer les masques
-  const processNFTImages = async (selectedNfts: (NFTMetadata | undefined)[]) => {
+  const processNFTImages = async (updatedNfts: (NFTMetadata | undefined)[]) => {
     try {
-      // Réinitialiser les images masquées pour les recréer toutes
       setMaskedImages([]);
       
-      // Créer un tableau pour stocker les nouvelles images masquées
       const newMaskedImages: HTMLCanvasElement[] = [];
 
-      // Filtrer les NFTs non-undefined avant de les traiter
-      const validNfts = selectedNfts.filter((nft): nft is NFTMetadata => nft !== undefined);
-
-      // Traiter chaque NFT sélectionné avec sa forme correspondante
-      for (let i = 0; i < validNfts.length; i++) {
-        const currentNft = validNfts[i];
+      for (let cellIndex = 0; cellIndex < shapes.length; cellIndex++) {
+        const currentNft = updatedNfts[cellIndex];
+        const currentShape = shapes[cellIndex];
         
-        // Trouver l'index de la forme correspondante dans le tableau shapes
-        // Pour le drag and drop, l'index peut ne pas correspondre à l'ordre des NFTs
-        const shapeIndex = nfts.findIndex(n => n && n.id === currentNft.id);
-        const currentShape = shapes[shapeIndex !== -1 ? shapeIndex : i];
-
         if (!currentNft || !currentShape) {
-          console.warn(`NFT ou forme manquante pour l'index ${i}`);
           continue;
         }
 
-        // Créer et charger l'image
         const image = new Image();
         image.crossOrigin = 'anonymous';
 
         await new Promise<void>((resolve, reject) => {
           const timeoutId = setTimeout(() => {
-            reject(new Error(`Timeout loading image ${i + 1}`));
+            reject(new Error(`Timeout loading image ${cellIndex + 1}`));
           }, 30000);
 
           image.onload = async () => {
@@ -183,15 +194,12 @@ function App() {
                 throw new Error('Invalid image dimensions');
               }
 
-              // Créer un nouveau canvas pour cette image masquée
               const maskedCanvas = document.createElement('canvas');
               maskedCanvas.width = currentShape.viewBox.width;
               maskedCanvas.height = currentShape.viewBox.height;
 
-              // Appliquer le masque à l'image
               await applyMaskToImage(image, currentShape, maskedCanvas);
 
-              // Vérifier que le canvas masqué a un contenu valide
               const maskedCtx = maskedCanvas.getContext('2d');
               if (!maskedCtx) throw new Error('Could not get masked canvas context');
 
@@ -202,8 +210,7 @@ function App() {
                 throw new Error('Masked image is empty');
               }
 
-              // Ajouter le canvas masqué à notre collection temporaire
-              newMaskedImages.push(maskedCanvas);
+              newMaskedImages[cellIndex] = maskedCanvas;
 
               resolve();
             } catch (err) {
@@ -213,10 +220,9 @@ function App() {
 
           image.onerror = () => {
             clearTimeout(timeoutId);
-            reject(new Error(`Failed to load image ${i + 1} from URL: ${currentNft.imageUrl}`));
+            reject(new Error(`Failed to load image ${cellIndex + 1} from URL: ${currentNft.imageUrl}`));
           };
 
-          // Ajouter un mécanisme anti-cache et de réessai
           const maxRetries = 3;
           let retryCount = 0;
 
@@ -229,7 +235,7 @@ function App() {
             clearTimeout(timeoutId);
             if (retryCount < maxRetries) {
               retryCount++;
-              setTimeout(loadImage, 1000 * retryCount); // Backoff exponentiel
+              setTimeout(loadImage, 1000 * retryCount); 
             } else {
               reject(new Error(`Failed to load image after ${maxRetries} attempts: ${currentNft.imageUrl}`));
             }
@@ -239,19 +245,18 @@ function App() {
         });
       }
 
-      // Mettre à jour l'état avec toutes les images masquées
-      setMaskedImages(newMaskedImages);
+      const filteredMaskedImages = newMaskedImages.filter(Boolean);
       
-      // Afficher le nombre d'images masquées créées
-      console.log(`${newMaskedImages.length} images masquées créées`);
+      setMaskedImages(filteredMaskedImages);
+      
+      console.log(`${filteredMaskedImages.length} images masquées créées`);
 
-      // Si nous avons des images, fusionnez-les
-      if (newMaskedImages.length > 0) {
+      if (filteredMaskedImages.length > 0) {
         const finalCanvas = canvasRef.current;
         if (!finalCanvas) throw new Error('Canvas not available');
 
         const dataUrl = await mergeMaskedImages(
-          newMaskedImages,
+          filteredMaskedImages,
           finalCanvas,
           shapes[0].viewBox
         );
@@ -269,12 +274,10 @@ function App() {
   const handleDownloadImage = async () => {
     if (!finalImage && !svgUrl) return;
     
-    // Créer un nom de fichier descriptif avec la date et l'heure
     const date = new Date();
     const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
     const formattedTime = `${date.getHours().toString().padStart(2, '0')}${date.getMinutes().toString().padStart(2, '0')}`;
     
-    // Si l'image finale avec NFTs est disponible, l'utiliser directement
     if (finalImage) {
       const link = document.createElement('a');
       link.href = finalImage;
@@ -283,84 +286,118 @@ function App() {
       return;
     }
     
-    // Si seulement le SVG est disponible (sans NFT), créer une image avec les alvéoles en arrière-plan
     if (svgUrl && shapes.length > 0) {
       try {
-        // Récupérer le token ID à partir du SVG ou de l'URL
-        let tokenId = '1'; // Valeur par défaut
-        const svgContent = await fetch(svgUrl).then(res => res.text());
+        let tokenId = '1'; 
         
-        // Essayer d'extraire le token ID du nom du fichier SVG
+        // Charger le contenu SVG
+        const svgResponse = await fetch(svgUrl);
+        const svgContent = await svgResponse.text();
+        console.log("SVG Content pour détection du token ID (téléchargement):", svgContent.substring(0, 200));
+        
+        // Essayer d'extraire le token ID du contenu SVG
         const svgMatch = svgContent.match(/mask_(\d+)\.svg/);
         if (svgMatch && svgMatch[1]) {
           tokenId = svgMatch[1];
-        } else {
-          // Rechercher dans l'URL si disponible
+          console.log(`Token ID détecté depuis le SVG pour le téléchargement: ${tokenId}`);
+        } 
+        // Sinon, rechercher dans l'URL si disponible
+        else {
           const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
           if (urlMatch && urlMatch[1]) {
             tokenId = urlMatch[1];
+            console.log(`Token ID détecté depuis l'URL pour le téléchargement: ${tokenId}`);
+          } else {
+            console.warn("Impossible de détecter le token ID pour le téléchargement, utilisation de la valeur par défaut: 1");
           }
         }
         
-        // Créer un canvas pour dessiner l'image complète
+        // Forcer le token ID à être une chaîne de caractères
+        tokenId = String(tokenId);
+        console.log(`Token ID final pour le téléchargement: ${tokenId}`);
+        
         const canvas = document.createElement('canvas');
         const viewBox = shapes[0].viewBox;
         canvas.width = viewBox.width;
         canvas.height = viewBox.height;
-        const ctx = canvas.getContext('2d');
         
+        const ctx = canvas.getContext('2d');
         if (!ctx) {
           throw new Error("Impossible de créer le contexte 2D");
         }
         
-        // Charger l'image d'alvéoles
+        // Ajouter un fond blanc
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        
+        // Définir explicitement l'URL de l'image d'alvéoles
+        const baseUrl = window.location.origin;
+        const alveoleUrl = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
+        console.log(`URL de l'image d'alvéoles à charger pour le téléchargement: ${alveoleUrl}`);
+        
         const alveoleImg = new Image();
         alveoleImg.crossOrigin = 'anonymous';
         
         await new Promise<void>((resolve, reject) => {
           alveoleImg.onload = () => {
-            // Dessiner l'image d'alvéoles
+            console.log(`Image d'alvéoles chargée avec succès pour le téléchargement: alveoles_${tokenId}.png`);
             ctx.drawImage(alveoleImg, 0, 0, canvas.width, canvas.height);
             
-            // Charger et dessiner le SVG par-dessus
             const svgImg = new Image();
             svgImg.crossOrigin = 'anonymous';
             svgImg.onload = () => {
               ctx.drawImage(svgImg, 0, 0, canvas.width, canvas.height);
               
-              // Convertir le canvas en image et télécharger
               const imageUrl = canvas.toDataURL('image/png');
               const link = document.createElement('a');
               link.href = imageUrl;
-              link.download = `ledgerstax_${formattedDate}_${formattedTime}.png`;
+              link.download = `ledgerstax_${tokenId}_${formattedDate}_${formattedTime}.png`;
               link.click();
               resolve();
             };
-            svgImg.onerror = reject;
+            svgImg.onerror = () => reject(new Error("Impossible de charger l'image SVG"));
             svgImg.src = svgUrl;
           };
-          alveoleImg.onerror = reject;
+          alveoleImg.onerror = () => {
+            console.warn(`Impossible de charger l'image d'alvéoles ${tokenId}, utilisation du SVG uniquement`);
+            
+            // Ajouter un fond blanc (à nouveau au cas où l'image d'alvéoles n'a pas pu être chargée)
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const svgImg = new Image();
+            svgImg.crossOrigin = 'anonymous';
+            svgImg.onload = () => {
+              ctx.drawImage(svgImg, 0, 0, canvas.width, canvas.height);
+              
+              const imageUrl = canvas.toDataURL('image/png');
+              const link = document.createElement('a');
+              link.href = imageUrl;
+              link.download = `ledgerstax_${tokenId}_${formattedDate}_${formattedTime}.png`;
+              link.click();
+              resolve();
+            };
+            svgImg.onerror = () => reject(new Error("Impossible de charger l'image SVG"));
+            svgImg.src = svgUrl;
+          };
           
-          const baseUrl = window.location.origin;
-          alveoleImg.src = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
+          alveoleImg.src = alveoleUrl;
         });
       } catch (err) {
-        console.error('Erreur lors de la création de l\'image complète:', err);
-        alert('Erreur lors du téléchargement de l\'image. Veuillez réessayer.');
+        console.error("Erreur lors du téléchargement de l'image:", err);
+        setError(`Erreur lors du téléchargement: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
-      {/* Header - Toujours visible */}
       <header className="w-full bg-white shadow-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <Web3Connect onConnect={handleConnect} />
         </div>
       </header>
 
-      {/* Contenu principal */}
       <main className="flex-1">
         {!connected ? (
           <div className="flex items-center justify-center h-full p-8">
@@ -373,14 +410,13 @@ function App() {
           </div>
         ) : (
           <div className="flex h-[calc(100vh-80px)] overflow-hidden">
-            {/* Configuration Column */}
             <div className="w-1/3 p-6 overflow-y-auto border-r border-gray-200 bg-white">
               <div className="space-y-6">
                 <SVGUploader 
                   onSVGLoad={handleSVGLoad}
-                  selectedNfts={nfts}
                   walletAddress={address}
                   onCellDrop={handleCellDrop}
+                  selectedNfts={nfts}
                 />
                 
                 {error && (
@@ -389,7 +425,6 @@ function App() {
                   </div>
                 )}
                 
-                {/* Afficher le nombre d'images masquées */}
                 {maskedImages.length > 0 && (
                   <div className="p-3 bg-blue-50 rounded-lg">
                     <p className="text-sm text-blue-700">
@@ -403,33 +438,51 @@ function App() {
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="text-lg font-semibold">Final Result</h3>
                       <button
-                        className="flex items-center bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-md transition-colors duration-200"
-                        onClick={handleDownloadImage}
+                        onClick={() => setShowFinalResult(!showFinalResult)}
+                        className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded text-sm"
                       >
-                        <Download className="w-4 h-4 mr-2" />
-                        Télécharger
+                        {showFinalResult ? 'Masquer' : 'Afficher'}
                       </button>
                     </div>
-                    {finalImage && (
-                      <img
-                        src={finalImage}
-                        alt="Processed NFT Composition"
-                        className="w-full h-auto rounded-lg"
-                      />
-                    )}
-                    {svgUrl && (
-                      <img
-                        src={svgUrl}
-                        alt="SVG Image"
-                        className="w-full h-auto rounded-lg"
-                      />
-                    )}
+                    
+                    <div className={`relative bg-gray-100 rounded-lg overflow-hidden ${showFinalResult ? '' : 'hidden'}`}>
+                      <canvas ref={canvasRef} className="w-full" style={{ display: 'none' }} />
+                      
+                      {finalImage ? (
+                        <img 
+                          src={finalImage} 
+                          alt="Processed NFT Composition" 
+                          className="w-full h-auto"
+                        />
+                      ) : (
+                        <div className="h-64 flex items-center justify-center">
+                          <p className="text-gray-500">
+                            {processing ? 'Processing...' : 'No image generated yet'}
+                          </p>
+                        </div>
+                      )}
+                      
+                      {error && (
+                        <div className="mt-4 p-3 bg-red-100 text-red-700 rounded">
+                          <p>{error}</p>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="mt-4 flex justify-center">
+                      <button
+                        onClick={handleDownloadImage}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center"
+                      >
+                        <Download className="w-5 h-5 mr-2" />
+                        Télécharger l'image
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* NFT Selection Column */}
             <div className="flex-1 p-6 overflow-y-auto bg-gray-50">
               <div className="space-y-6">
                 {shapes.length > 0 && (

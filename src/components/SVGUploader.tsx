@@ -82,21 +82,37 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
     // Récupérer le token ID à partir du SVG chargé
     let tokenId = '1'; // Valeur par défaut
     try {
-      // Essayer d'extraire le token ID du nom du fichier SVG
+      // Essayer d'extraire le token ID directement du contenu SVG
+      console.log("SVG Content pour détection du token ID:", svgContent.substring(0, 200));
+      
+      // Vérifier si le SVG contient une référence directe au fichier mask_X.svg
       const svgMatch = svgContent.match(/mask_(\d+)\.svg/);
       if (svgMatch && svgMatch[1]) {
         tokenId = svgMatch[1];
-      } else {
-        // Rechercher dans l'URL si disponible
+        console.log(`Token ID détecté depuis le SVG (pattern): ${tokenId}`);
+      } 
+      // Sinon, rechercher dans l'URL si disponible
+      else {
         const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
         if (urlMatch && urlMatch[1]) {
           tokenId = urlMatch[1];
+          console.log(`Token ID détecté depuis l'URL: ${tokenId}`);
+        } else {
+          console.warn("Impossible de détecter le token ID, utilisation de la valeur par défaut: 1");
         }
       }
-      console.log(`Token ID détecté: ${tokenId}`);
     } catch (err) {
       console.warn('Impossible de détecter le token ID:', err);
     }
+
+    // Forcer le token ID à être une chaîne de caractères
+    tokenId = String(tokenId);
+    console.log(`Token ID final pour le chargement de l'image d'alvéoles: ${tokenId}`);
+
+    // Définir explicitement l'URL de l'image d'alvéoles
+    const baseUrl = window.location.origin;
+    const alveoleUrl = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
+    console.log(`URL de l'image d'alvéoles à charger: ${alveoleUrl}`);
 
     // Charger d'abord l'image d'alvéoles complète en arrière-plan
     try {
@@ -111,6 +127,7 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
         
         alveoleImg.onload = () => {
           clearTimeout(timeoutId);
+          console.log(`Image d'alvéoles chargée avec succès: alveoles_${tokenId}.png`);
           // Dessiner l'image d'alvéoles complète en arrière-plan
           ctx.save();
           ctx.scale(scale, scale);
@@ -122,12 +139,11 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
         
         alveoleImg.onerror = () => {
           clearTimeout(timeoutId);
-          console.error(`Erreur lors du chargement de l'image d'alvéoles complète`);
+          console.error(`Erreur lors du chargement de l'image d'alvéoles complète: alveoles_${tokenId}.png`);
           resolveAlveole();
         };
         
-        const baseUrl = window.location.origin;
-        alveoleImg.src = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
+        alveoleImg.src = alveoleUrl;
       });
     } catch (err) {
       console.error('Erreur lors du chargement de l\'image d\'alvéoles complète:', err);
@@ -218,7 +234,8 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
   };
 
   useEffect(() => {
-    if (svgPreview && shapes.length > 0) {
+    if (svgPreview && shapes.length > 0 && selectedNfts) {
+      console.log('Mise à jour de l\'aperçu SVG avec les nouveaux NFTs:', selectedNfts);
       renderPreview(svgPreview, shapes, selectedNfts).catch(err => {
         console.error('Error updating preview:', err);
       });

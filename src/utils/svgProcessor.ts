@@ -222,25 +222,27 @@ export const applyMaskToImage = async (
       // Create a path for clipping
       const path = new Path2D(shape.path);
 
-      // Utiliser la même méthode de mise à l'échelle que dans l'aperçu SVG
-      const scaleX = canvas.width / shape.viewBox.width;
-      const scaleY = canvas.height / shape.viewBox.height;
-      const scale = Math.min(scaleX, scaleY);
+      // Calculate scaling to fit image within shape bounds while maintaining aspect ratio
+      const scaleX = shape.bounds.width / image.width;
+      const scaleY = shape.bounds.height / image.height;
+      const scale = Math.max(scaleX, scaleY);
 
-      // Calculer la position pour centrer l'image dans la forme
-      // en utilisant la même logique que dans l'aperçu SVG
+      // Calculate position to center the image within the shape
       const scaledWidth = image.width * scale;
       const scaledHeight = image.height * scale;
-      const x = (shape.center.x - shape.viewBox.minX) * scale - scaledWidth / 2;
-      const y = (shape.center.y - shape.viewBox.minY) * scale - scaledHeight / 2;
+      const x = shape.center.x - scaledWidth / 2;
+      const y = shape.center.y - scaledHeight / 2;
 
       // Save the context state
       ctx.save();
 
-      // Appliquer le chemin de découpage
+      // Apply viewBox transformation
+      ctx.translate(-shape.viewBox.minX, -shape.viewBox.minY);
+
+      // Apply the clipping path
       ctx.clip(path);
 
-      // Dessiner l'image
+      // Draw the image
       ctx.drawImage(image, x, y, scaledWidth, scaledHeight);
 
       // Restore the context state
