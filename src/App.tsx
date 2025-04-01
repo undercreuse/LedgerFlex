@@ -4,6 +4,7 @@ import { SVGUploader } from './components/SVGUploader';
 import { NFTSelector } from './components/NFTSelector';
 import { SVGShape, NFTMetadata } from './types';
 import { applyMaskToImage } from './utils/svgProcessor';
+import { Download } from 'lucide-react';
 
 function App() {
   const [connected, setConnected] = useState(false);
@@ -12,6 +13,7 @@ function App() {
   const [nfts, setNfts] = useState<(NFTMetadata | undefined)[]>([]);
   const [maskedImages, setMaskedImages] = useState<HTMLCanvasElement[]>([]);
   const [finalImage, setFinalImage] = useState<string | null>(null);
+  const [svgUrl, setSvgUrl] = useState<string>(''); // Changé de null à chaîne vide
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,12 +23,13 @@ function App() {
     setAddress(walletAddress);
   };
 
-  const handleSVGLoad = (loadedShapes: SVGShape[]) => {
+  const handleSVGLoad = (loadedShapes: SVGShape[], url: string) => {
     setShapes(loadedShapes);
     setNfts([]);
     setMaskedImages([]);
     setFinalImage(null);
     setError(null);
+    setSvgUrl(url);
   };
 
   // Fonction pour gérer le drop d'un NFT sur une cellule spécifique
@@ -263,6 +266,91 @@ function App() {
     }
   };
 
+  const handleDownloadImage = async () => {
+    if (!finalImage && !svgUrl) return;
+    
+    // Créer un nom de fichier descriptif avec la date et l'heure
+    const date = new Date();
+    const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+    const formattedTime = `${date.getHours().toString().padStart(2, '0')}${date.getMinutes().toString().padStart(2, '0')}`;
+    
+    // Si l'image finale avec NFTs est disponible, l'utiliser directement
+    if (finalImage) {
+      const link = document.createElement('a');
+      link.href = finalImage;
+      link.download = `ledgerstax_${formattedDate}_${formattedTime}.png`;
+      link.click();
+      return;
+    }
+    
+    // Si seulement le SVG est disponible (sans NFT), créer une image avec les alvéoles en arrière-plan
+    if (svgUrl && shapes.length > 0) {
+      try {
+        // Récupérer le token ID à partir du SVG ou de l'URL
+        let tokenId = '1'; // Valeur par défaut
+        const svgContent = await fetch(svgUrl).then(res => res.text());
+        
+        // Essayer d'extraire le token ID du nom du fichier SVG
+        const svgMatch = svgContent.match(/mask_(\d+)\.svg/);
+        if (svgMatch && svgMatch[1]) {
+          tokenId = svgMatch[1];
+        } else {
+          // Rechercher dans l'URL si disponible
+          const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
+          if (urlMatch && urlMatch[1]) {
+            tokenId = urlMatch[1];
+          }
+        }
+        
+        // Créer un canvas pour dessiner l'image complète
+        const canvas = document.createElement('canvas');
+        const viewBox = shapes[0].viewBox;
+        canvas.width = viewBox.width;
+        canvas.height = viewBox.height;
+        const ctx = canvas.getContext('2d');
+        
+        if (!ctx) {
+          throw new Error("Impossible de créer le contexte 2D");
+        }
+        
+        // Charger l'image d'alvéoles
+        const alveoleImg = new Image();
+        alveoleImg.crossOrigin = 'anonymous';
+        
+        await new Promise<void>((resolve, reject) => {
+          alveoleImg.onload = () => {
+            // Dessiner l'image d'alvéoles
+            ctx.drawImage(alveoleImg, 0, 0, canvas.width, canvas.height);
+            
+            // Charger et dessiner le SVG par-dessus
+            const svgImg = new Image();
+            svgImg.crossOrigin = 'anonymous';
+            svgImg.onload = () => {
+              ctx.drawImage(svgImg, 0, 0, canvas.width, canvas.height);
+              
+              // Convertir le canvas en image et télécharger
+              const imageUrl = canvas.toDataURL('image/png');
+              const link = document.createElement('a');
+              link.href = imageUrl;
+              link.download = `ledgerstax_${formattedDate}_${formattedTime}.png`;
+              link.click();
+              resolve();
+            };
+            svgImg.onerror = reject;
+            svgImg.src = svgUrl;
+          };
+          alveoleImg.onerror = reject;
+          
+          const baseUrl = window.location.origin;
+          alveoleImg.src = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
+        });
+      } catch (err) {
+        console.error('Erreur lors de la création de l\'image complète:', err);
+        alert('Erreur lors du téléchargement de l\'image. Veuillez réessayer.');
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col">
       {/* Header - Toujours visible */}
@@ -309,6 +397,35 @@ function App() {
                     </p>
                   </div>
                 )}
+                
+                {(finalImage || svgUrl) && (
+                  <div className="bg-white p-6 rounded-lg shadow-md">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-semibold">Final Result</h3>
+                      <button
+                        className="flex items-center bg-blue-500 hover:bg-blue-600 text-white font-medium py-2 px-4 rounded-md transition-colors duration-200"
+                        onClick={handleDownloadImage}
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        Télécharger
+                      </button>
+                    </div>
+                    {finalImage && (
+                      <img
+                        src={finalImage}
+                        alt="Processed NFT Composition"
+                        className="w-full h-auto rounded-lg"
+                      />
+                    )}
+                    {svgUrl && (
+                      <img
+                        src={svgUrl}
+                        alt="SVG Image"
+                        className="w-full h-auto rounded-lg"
+                      />
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -321,17 +438,6 @@ function App() {
                     walletAddress={address}
                     isProcessing={processing}
                   />
-                )}
-
-                {finalImage && (
-                  <div className="bg-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-4">Final Result</h3>
-                    <img
-                      src={finalImage}
-                      alt="Processed NFT Composition"
-                      className="w-full h-auto rounded-lg"
-                    />
-                  </div>
                 )}
               </div>
             </div>

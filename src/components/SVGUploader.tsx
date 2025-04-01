@@ -6,7 +6,7 @@ import { extractShapesFromSVG, applyMaskToImage } from '../utils/svgProcessor';
 import { useNFTOwnership } from '../hooks/useNFTOwnership';
 
 interface SVGUploaderProps {
-  onSVGLoad: (shapes: SVGShape[]) => void;
+  onSVGLoad: (shapes: SVGShape[], svgUrl: string) => void;
   selectedNfts?: (NFTMetadata | undefined)[];
   walletAddress?: string;
   onCellDrop?: (cellIndex: number, nft: NFTMetadata | undefined) => void;
@@ -238,7 +238,14 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
           const text = await file.text();
           const extractedShapes = extractShapesFromSVG(text);
           setShapes(extractedShapes);
-          onSVGLoad(extractedShapes);
+          
+          // Créer une URL pour le SVG
+          const blob = new Blob([text], { type: 'image/svg+xml' });
+          const svgUrl = URL.createObjectURL(blob);
+          
+          // Passer les formes extraites et l'URL du SVG au composant parent
+          onSVGLoad(extractedShapes, svgUrl);
+          
           setSvgPreview(text);
           await renderPreview(text, extractedShapes, []);
         }
@@ -302,7 +309,7 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
         // Mettre à jour l'état dans le même ordre que dans onDrop
         console.log('Mise à jour de l\'état...');
         setShapes(extractedShapes);
-        onSVGLoad(extractedShapes);
+        onSVGLoad(extractedShapes, svgPath);
         setSvgPreview(svgContent);
         
         // Attendre que l'état soit mis à jour
