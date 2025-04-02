@@ -591,7 +591,6 @@ function App() {
                     <NFTSelector 
                       walletAddress={address} 
                       requiredCount={shapes.length} 
-                      isProcessing={processing}
                       chainId={chainId}
                     />
                   </div>

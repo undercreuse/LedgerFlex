@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Loader2, Filter } from 'lucide-react';
 import { NFTMetadata } from '../types';
 import { useNFTs } from '../hooks/useNFTs';
@@ -6,19 +6,25 @@ import { useNFTs } from '../hooks/useNFTs';
 interface NFTSelectorProps {
   requiredCount: number;
   walletAddress: string;
-  isProcessing: boolean;
   chainId?: string;
 }
 
 export const NFTSelector: React.FC<NFTSelectorProps> = ({
   requiredCount,
   walletAddress,
-  isProcessing,
   chainId
 }) => {
   const { nfts, loading, error, availableChains } = useNFTs(walletAddress, chainId);
   const [selectedChain, setSelectedChain] = useState<string | null>(null);
   const [showChainFilter, setShowChainFilter] = useState(false);
+  const [selectedNFT, setSelectedNFT] = useState<NFTMetadata | null>(null);
+  
+  // Mettre à jour le NFT sélectionné quand les NFTs sont chargés
+  useEffect(() => {
+    if (nfts.length > 0 && !selectedNFT) {
+      setSelectedNFT(nfts[0]);
+    }
+  }, [nfts, selectedNFT]);
   
   // Fonction pour gérer le début du drag
   const handleDragStart = (e: React.DragEvent<HTMLDivElement>, nft: NFTMetadata) => {
@@ -140,23 +146,23 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
               key={nft.id}
               draggable
               onDragStart={(e) => handleDragStart(e, nft)}
-              className="relative aspect-square rounded-lg overflow-hidden border-2 border-gray-200 hover:border-gray-300 transition-all cursor-grab"
+              className={`relative aspect-square rounded-lg overflow-hidden border-2 ${
+                selectedNFT?.id === nft.id 
+                  ? 'border-blue-500' 
+                  : 'border-gray-200 hover:border-gray-300'
+              } transition-all cursor-grab`}
+              onClick={() => setSelectedNFT(nft)}
             >
-              <img
-                src={nft.imageUrl}
-                alt={nft.name}
+              <img 
+                src={nft.imageUrl} 
+                alt={nft.name} 
                 className="w-full h-full object-cover"
                 crossOrigin="anonymous"
               />
-              {isProcessing && (
-                <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center">
-                  <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                </div>
-              )}
-              <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-70 text-white text-xs p-1">
-                <div className="truncate">{nft.name || `NFT #${nft.tokenId}`}</div>
+              <div className="absolute bottom-0 left-0 right-0 p-2 bg-white bg-opacity-75">
+                <div className="font-medium">{nft.name || `NFT #${nft.tokenId}`}</div>
                 {nft.chain && (
-                  <div className="text-xs text-gray-300 truncate">
+                  <div className="text-xs text-gray-500">
                     {nft.chain.charAt(0).toUpperCase() + nft.chain.slice(1)}
                   </div>
                 )}
