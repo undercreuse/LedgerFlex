@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Upload } from 'lucide-react';
 import { SVGShape, NFTMetadata } from '../types';
@@ -10,23 +10,27 @@ interface SVGUploaderProps {
   selectedNfts?: (NFTMetadata | undefined)[];
   walletAddress?: string;
   onCellDrop?: (cellIndex: number, nft: NFTMetadata | undefined) => void;
+  onTokenIdChange?: (tokenId: string) => void;
 }
 
 export const SVGUploader: React.FC<SVGUploaderProps> = ({ 
   onSVGLoad, 
   selectedNfts = [], 
   walletAddress,
-  onCellDrop 
+  onCellDrop,
+  onTokenIdChange
 }) => {
-  const [error, setError] = React.useState<string>('');
-  const [svgPreview, setSvgPreview] = React.useState<string | null>(null);
-  const previewCanvasRef = React.useRef<HTMLCanvasElement>(null);
-  const [shapes, setShapes] = React.useState<SVGShape[]>([]);
+  const [error, setError] = useState<string>('');
+  const [svgPreview, setSvgPreview] = useState<string | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [shapes, setShapes] = useState<SVGShape[]>([]);
   const { isOwner, tokenIds, checkOwnership } = useNFTOwnership();
-  const [checkingNFT, setCheckingNFT] = React.useState<boolean>(false);
-  const [verificationStatus, setVerificationStatus] = React.useState<string>('');
-  const [showDragDrop] = React.useState<boolean>(false);
-  const [dragOverCell, setDragOverCell] = React.useState<number | null>(null);
+  const [checkingNFT, setCheckingNFT] = useState<boolean>(false);
+  const [verificationStatus, setVerificationStatus] = useState<string>('');
+  const [showDragDrop] = useState<boolean>(false);
+  const [dragOverCell, setDragOverCell] = useState<number | null>(null);
+  const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
+  const [showTokenSelector, setShowTokenSelector] = useState<boolean>(false);
 
   // Fonction pour gérer le drop d'un NFT sur une cellule
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>, cellIndex: number) => {
@@ -55,9 +59,69 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
   useEffect(() => {
     if (isOwner && tokenIds.length > 0) {
       setError('');
-      setVerificationStatus(`NFT trouvé! Token IDs: ${tokenIds.join(', ')}`);
+      setVerificationStatus(`Cover Flex trouvé! Token IDs: ${tokenIds.join(', ')}`);
     }
   }, [isOwner, tokenIds]);
+
+  // Fonction dédiée au chargement et à l'affichage de l'image d'alvéoles
+  const loadAndDrawAlveoles = async (tokenId: string, canvas: HTMLCanvasElement, viewBox: { minX: number, minY: number, width: number, height: number }, scale: number) => {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    
+    // Forcer le token ID à être une chaîne de caractères
+    tokenId = String(tokenId);
+    console.log(`loadAndDrawAlveoles - Chargement de l'image d'alvéoles pour le token ID: ${tokenId}`);
+    
+    // Définir explicitement l'URL de l'image d'alvéoles avec un paramètre de cache-busting
+    const baseUrl = window.location.origin;
+    const timestamp = Date.now();
+    const alveoleUrl = `${baseUrl}/svg/alveoles_${tokenId}.png?forceReload=${timestamp}`;
+    console.log(`loadAndDrawAlveoles - URL de l'image d'alvéoles: ${alveoleUrl}`);
+    
+    // Nous n'utilisons plus cette variable d'état, donc nous la supprimons
+    // setCurrentAlveolesUrl(alveoleUrl);
+    
+    try {
+      return await new Promise<boolean>((resolve) => {
+        const alveoleImg = new Image();
+        alveoleImg.crossOrigin = 'anonymous';
+        
+        const timeoutId = setTimeout(() => {
+          console.warn(`loadAndDrawAlveoles - Timeout lors du chargement de l'image d'alvéoles`);
+          resolve(false);
+        }, 5000);
+        
+        alveoleImg.onload = () => {
+          clearTimeout(timeoutId);
+          console.log(`loadAndDrawAlveoles - Image d'alvéoles chargée avec succès: ${alveoleUrl}`);
+          
+          // Effacer le canvas avant de dessiner
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          
+          // Dessiner l'image d'alvéoles
+          ctx.save();
+          ctx.scale(scale, scale);
+          ctx.translate(-viewBox.minX, -viewBox.minY);
+          ctx.drawImage(alveoleImg, viewBox.minX, viewBox.minY, viewBox.width, viewBox.height);
+          ctx.restore();
+          
+          resolve(true);
+        };
+        
+        alveoleImg.onerror = () => {
+          clearTimeout(timeoutId);
+          console.error(`loadAndDrawAlveoles - Erreur lors du chargement de l'image d'alvéoles: ${alveoleUrl}`);
+          resolve(false);
+        };
+        
+        // Désactiver le cache pour forcer le rechargement de l'image
+        alveoleImg.src = alveoleUrl;
+      });
+    } catch (err) {
+      console.error('loadAndDrawAlveoles - Erreur:', err);
+      return false;
+    }
+  };
 
   const renderPreview = async (svgContent: string, svgShapes: SVGShape[], selectedNfts: (NFTMetadata | undefined)[]) => {
     const canvas = previewCanvasRef.current;
@@ -79,74 +143,30 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Récupérer le token ID à partir du SVG chargé
-    let tokenId = '1'; // Valeur par défaut
-    try {
-      // Essayer d'extraire le token ID directement du contenu SVG
-      console.log("SVG Content pour détection du token ID:", svgContent.substring(0, 200));
-      
-      // Vérifier si le SVG contient une référence directe au fichier mask_X.svg
-      const svgMatch = svgContent.match(/mask_(\d+)\.svg/);
-      if (svgMatch && svgMatch[1]) {
-        tokenId = svgMatch[1];
-        console.log(`Token ID détecté depuis le SVG (pattern): ${tokenId}`);
-      } 
-      // Sinon, rechercher dans l'URL si disponible
-      else {
-        const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
-        if (urlMatch && urlMatch[1]) {
-          tokenId = urlMatch[1];
-          console.log(`Token ID détecté depuis l'URL: ${tokenId}`);
-        } else {
-          console.warn("Impossible de détecter le token ID, utilisation de la valeur par défaut: 1");
+    // Utiliser d'abord le token ID sélectionné dans la liste déroulante s'il existe
+    let tokenId = selectedTokenId || '1'; // Utiliser le token ID sélectionné ou la valeur par défaut
+    
+    console.log(`renderPreview - Token ID utilisé: ${tokenId}`);
+    
+    // Si aucun token ID n'est sélectionné, essayer de le détecter à partir du SVG
+    if (!selectedTokenId) {
+      try {
+        // Essayer d'extraire le token ID du contenu SVG
+        const svgMatch = svgContent.match(/mask_(\d+)\.svg/);
+        if (svgMatch && svgMatch[1]) {
+          tokenId = svgMatch[1];
+          console.log(`Token ID extrait du contenu SVG: ${tokenId}`);
         }
+      } catch (err) {
+        console.error('Erreur lors de l\'extraction du token ID du SVG:', err);
       }
-    } catch (err) {
-      console.warn('Impossible de détecter le token ID:', err);
     }
-
-    // Forcer le token ID à être une chaîne de caractères
-    tokenId = String(tokenId);
-    console.log(`Token ID final pour le chargement de l'image d'alvéoles: ${tokenId}`);
-
-    // Définir explicitement l'URL de l'image d'alvéoles
-    const baseUrl = window.location.origin;
-    const alveoleUrl = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
-    console.log(`URL de l'image d'alvéoles à charger: ${alveoleUrl}`);
-
-    // Charger d'abord l'image d'alvéoles complète en arrière-plan
-    try {
-      const alveoleImg = new Image();
-      alveoleImg.crossOrigin = 'anonymous';
-      
-      await new Promise<void>((resolveAlveole) => {
-        const timeoutId = setTimeout(() => {
-          console.warn(`Timeout lors du chargement de l'image d'alvéoles complète`);
-          resolveAlveole();
-        }, 5000);
-        
-        alveoleImg.onload = () => {
-          clearTimeout(timeoutId);
-          console.log(`Image d'alvéoles chargée avec succès: alveoles_${tokenId}.png`);
-          // Dessiner l'image d'alvéoles complète en arrière-plan
-          ctx.save();
-          ctx.scale(scale, scale);
-          ctx.translate(-viewBox.minX, -viewBox.minY);
-          ctx.drawImage(alveoleImg, viewBox.minX, viewBox.minY, viewBox.width, viewBox.height);
-          ctx.restore();
-          resolveAlveole();
-        };
-        
-        alveoleImg.onerror = () => {
-          clearTimeout(timeoutId);
-          console.error(`Erreur lors du chargement de l'image d'alvéoles complète: alveoles_${tokenId}.png`);
-          resolveAlveole();
-        };
-        
-        alveoleImg.src = alveoleUrl;
-      });
-    } catch (err) {
-      console.error('Erreur lors du chargement de l\'image d\'alvéoles complète:', err);
+    
+    // Charger l'image d'alvéoles
+    const loaded = await loadAndDrawAlveoles(tokenId, canvas, viewBox, scale);
+    if (!loaded) {
+      console.error('Erreur lors du chargement de l\'image d\'alvéoles');
+      return;
     }
 
     // Dessiner le SVG par-dessus
@@ -181,7 +201,7 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
               await new Promise<void>((resolveNft, rejectNft) => {
                 nftImage.onload = async () => {
                   try {
-                    await applyMaskToImage(nftImage, shape, tempCanvas);
+                    await applyMaskToImage(nftImage, shape, tempCanvas, true);
                     
                     ctx.drawImage(tempCanvas, 0, 0);
                     resolveNft();
@@ -233,14 +253,18 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
     });
   };
 
+  // Mettre à jour l'aperçu lorsque les NFTs sélectionnés changent
   useEffect(() => {
     if (svgPreview && shapes.length > 0 && selectedNfts) {
       console.log('Mise à jour de l\'aperçu SVG avec les nouveaux NFTs:', selectedNfts);
+      console.log('Token ID actuel:', selectedTokenId);
+      
+      // Utiliser les formes et le contenu SVG actuels pour le rendu
       renderPreview(svgPreview, shapes, selectedNfts).catch(err => {
         console.error('Error updating preview:', err);
       });
     }
-  }, [svgPreview, shapes, selectedNfts]);
+  }, [svgPreview, shapes, selectedNfts, selectedTokenId]); // Ajouter selectedTokenId comme dépendance
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
@@ -274,18 +298,21 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
   });
 
   // Fonction pour charger un SVG depuis le dossier public/svg
-  const loadSVGFromPublic = async (tokenId: string) => {
+  const loadSVGFromPublic = async (tokenId: string): Promise<SVGShape[] | null> => {
     try {
       console.log(`===== DÉBUT DU CHARGEMENT DU SVG POUR TOKEN ID: ${tokenId} =====`);
       setVerificationStatus(`Chargement du SVG pour le token ID: ${tokenId}...`);
       setError('');
+      
+      // Mettre à jour le token ID sélectionné immédiatement
+      setSelectedTokenId(tokenId);
       
       // Utiliser l'URL complète avec le chemin de base de l'application
       const baseUrl = window.location.origin;
       const svgPath = `${baseUrl}/svg/mask_${tokenId}.svg`;
       console.log(`Tentative de chargement du SVG depuis: ${svgPath}`);
       
-      // Vérifier si le fichier existe dans le dossier public
+      // Vérifier si le fichier SVG existe dans le dossier public
       try {
         const response = await fetch(svgPath, {
           headers: {
@@ -329,19 +356,6 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
         onSVGLoad(extractedShapes, svgPath);
         setSvgPreview(svgContent);
         
-        // Attendre que l'état soit mis à jour
-        console.log('Attente de la mise à jour de l\'état...');
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Rendre l'aperçu
-        console.log('Rendu de l\'aperçu SVG...');
-        console.log('État actuel: shapes =', shapes.length, 'svgPreview =', svgPreview ? 'présent' : 'absent');
-        console.log('Canvas disponible:', previewCanvasRef.current ? 'oui' : 'non');
-        
-        // Utiliser les formes extraites directement plutôt que de compter sur l'état mis à jour
-        await renderPreview(svgContent, extractedShapes, []);
-        console.log('Rendu terminé avec succès');
-        
         setVerificationStatus(`SVG chargé avec succès pour le token ID: ${tokenId}`);
         console.log(`===== FIN DU CHARGEMENT DU SVG POUR TOKEN ID: ${tokenId} =====`);
         return extractedShapes;
@@ -370,20 +384,21 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
 
   const handleCheckNFT = async () => {
     if (!walletAddress) {
-      setError("Veuillez connecter votre wallet pour vérifier la propriété NFT");
+      setError("Veuillez connecter votre wallet pour vérifier la propriété");
+      setVerificationStatus("Wallet non connecté");
       return;
     }
 
     try {
-      setCheckingNFT(true);
       setError('');
-      setVerificationStatus("Vérification de la propriété NFT...");
-
-      console.log("=== DÉBUT DE LA VÉRIFICATION NFT ===");
+      setCheckingNFT(true);
+      setVerificationStatus("Vérification en cours...");
+      
+      console.log("=== DÉBUT DE LA VÉRIFICATION COVER FLEX ===");
       console.log("Adresse du wallet:", walletAddress);
       console.log("État initial - isOwner:", isOwner, "tokenIds:", tokenIds);
 
-      // Vérifier la propriété NFT et récupérer les résultats directement
+      // Vérifier la propriété et récupérer les résultats directement
       const result = await checkOwnership(walletAddress);
       
       console.log("Résultats de checkOwnership:", result);
@@ -391,23 +406,32 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
       
       // Utiliser les résultats retournés directement par le hook
       if (result.isOwner && result.tokenIds.length > 0) {
-        console.log(`NFT trouvé! Token IDs: ${result.tokenIds.join(', ')}`);
-        setVerificationStatus(`NFT trouvé! Token IDs: ${result.tokenIds.join(', ')}`);
+        console.log(`Cover Flex trouvé! Token IDs: ${result.tokenIds.join(', ')}`);
         
-        // Prendre le premier token ID trouvé
+        // Prendre le premier token ID trouvé et le définir comme sélectionné
         const tokenId = result.tokenIds[0];
+        setSelectedTokenId(tokenId);
         console.log("Token ID sélectionné pour chargement:", tokenId);
+        
+        // Mettre à jour le statut avec le nombre de Cover Flex trouvés
+        if (result.tokenIds.length === 1) {
+          setVerificationStatus(`Cover Flex trouvé! Token ID: ${tokenId}`);
+        } else {
+          setVerificationStatus(`${result.tokenIds.length} Cover Flex trouvés! Token IDs: ${result.tokenIds.join(', ')}`);
+          setShowTokenSelector(true);
+        }
         
         // Charger directement le SVG correspondant
         await loadSVGFromPublic(tokenId);
       } else {
-        console.log(`Aucun NFT trouvé pour l'adresse ${walletAddress}`);
-        setError("Aucun NFT trouvé pour cette adresse wallet");
-        setVerificationStatus("Aucun NFT trouvé");
+        console.log(`Aucun Cover Flex trouvé pour l'adresse ${walletAddress}`);
+        setError("Aucun Cover Flex trouvé pour cette adresse wallet");
+        setVerificationStatus("Aucun Cover Flex trouvé");
       }
-      console.log("=== FIN DE LA VÉRIFICATION NFT ===");
+      
+      console.log("=== FIN DE LA VÉRIFICATION COVER FLEX ===");
     } catch (err) {
-      console.error("Erreur lors de la vérification de propriété NFT:", err);
+      console.error("Erreur lors de la vérification de la propriété d'un Cover Flex:", err);
       setError(`Erreur lors de la vérification: ${err instanceof Error ? err.message : String(err)}`);
       setVerificationStatus("Échec de la vérification");
     } finally {
@@ -434,9 +458,9 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
         
         {/* Section de vérification NFT */}
         <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-          <h3 className="text-lg font-medium mb-2">Vérification de propriété NFT</h3>
+          <h3 className="text-lg font-medium mb-2">Vérification de la propriété d'un Cover Flex</h3>
           <p className="text-sm text-gray-600 mb-3">
-            Connectez votre wallet et vérifiez si vous possédez un NFT de la collection pour charger automatiquement votre SVG.
+            Connectez votre wallet et vérifiez si vous possédez un Cover Flex de la collection pour charger automatiquement votre SVG.
           </p>
           
           <div className="flex items-center gap-2">
@@ -446,10 +470,10 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
               disabled={!walletAddress || checkingNFT}
               className={`px-4 py-2 rounded-md ${!walletAddress || checkingNFT ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
             >
-              {checkingNFT ? 'Vérification...' : 'Vérifier propriété NFT'}
+              {checkingNFT ? 'Vérification...' : 'Vérifier propriété'}
             </button>
             
-            {verificationStatus && (
+            {verificationStatus && !showTokenSelector && (
               <span className={`text-sm ${error ? 'text-red-500' : 'text-green-600'}`}>
                 {verificationStatus}
               </span>
@@ -457,6 +481,89 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
           </div>
           
           {error && <p className="text-sm text-red-500 mt-2">{error}</p>}
+          
+          {/* Liste déroulante pour sélectionner un NFT spécifique du contrat */}
+          {showTokenSelector && tokenIds.length > 1 && (
+            <div className="mt-4">
+              <div className="flex flex-col space-y-2">
+                <div className="flex items-center">
+                  <span className="text-sm text-green-600 mr-2">
+                    {`${tokenIds.length} Cover Flex trouvés dans votre wallet`}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    id="token-selector"
+                    value={selectedTokenId || ''}
+                    onChange={(e) => {
+                      const newTokenId = e.target.value;
+                      console.log(`Changement de token ID: ${newTokenId}`);
+                      
+                      // Réinitialiser le canvas avant de charger le nouveau SVG
+                      if (previewCanvasRef.current) {
+                        const ctx = previewCanvasRef.current.getContext('2d');
+                        if (ctx) {
+                          ctx.clearRect(0, 0, previewCanvasRef.current.width, previewCanvasRef.current.height);
+                        }
+                      }
+                      
+                      // Réinitialiser les NFTs positionnés dans les zones
+                      // Utiliser onCellDrop pour vider chaque cellule
+                      if (onCellDrop) {
+                        shapes.forEach((_, index) => {
+                          onCellDrop(index, undefined);
+                        });
+                      }
+                      
+                      // Mettre à jour le token ID sélectionné
+                      setSelectedTokenId(newTokenId);
+                      
+                      // Signaler le changement de token ID au composant parent
+                      if (onTokenIdChange) {
+                        onTokenIdChange(newTokenId);
+                      }
+                      
+                      // Forcer un petit délai pour s'assurer que l'état est mis à jour
+                      setTimeout(async () => {
+                        // Charger le nouveau SVG
+                        if (newTokenId && previewCanvasRef.current) {
+                          // Charger le SVG
+                          const shapes = await loadSVGFromPublic(newTokenId);
+                          
+                          // Si le chargement du SVG a réussi et que nous avons des formes
+                          if (shapes && shapes.length > 0 && previewCanvasRef.current) {
+                            // Calculer l'échelle pour l'affichage
+                            const viewBox = shapes[0].viewBox;
+                            const maxPreviewSize = 300;
+                            const scale = Math.min(
+                              maxPreviewSize / viewBox.width,
+                              maxPreviewSize / viewBox.height
+                            );
+                            
+                            // Forcer le chargement et l'affichage de l'image d'alvéoles
+                            await loadAndDrawAlveoles(newTokenId, previewCanvasRef.current, viewBox, scale);
+                          }
+                        }
+                      }, 50);
+                    }}
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    style={{ padding: '0.5rem', border: '1px solid #d1d5db' }}
+                  >
+                    {tokenIds.map((id) => (
+                      <option key={id} value={id}>
+                        Cover Flex #{id} - Base Sepolia
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="text-sm text-gray-600">
+                  <span>
+                    {selectedTokenId ? `SVG chargé avec succès pour le token ID: ${selectedTokenId}` : 'Sélectionnez un Cover Flex'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         
         {/* Bloc de drag & drop (masqué) */}

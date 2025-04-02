@@ -54,39 +54,34 @@ const convertUnits = (value: string): number => {
 
 const normalizeViewBox = (svg: SVGElement): { minX: number, minY: number, width: number, height: number } => {
   const viewBoxAttr = svg.getAttribute('viewBox');
-  if (viewBoxAttr) {
-    const values = viewBoxAttr.trim().split(/[\s,]+/);
-    if (values.length === 4) {
-      const [minX, minY, width, height] = values.map(v => parseFloat(v));
-      if (!isNaN(width) && !isNaN(height) && width > 0 && height > 0) {
-        return { minX, minY, width, height };
-      }
-    }
-  }
-
-  let width = convertUnits(svg.getAttribute('width') || '0');
-  let height = convertUnits(svg.getAttribute('height') || '0');
   
-  if (width <= 0 || height <= 0) {
-    const style = svg.getAttribute('style');
-    if (style) {
-      const widthMatch = style.match(/width:\s*([\d.]+)(mm|cm|in|pt|pc|px)?/);
-      const heightMatch = style.match(/height:\s*([\d.]+)(mm|cm|in|pt|pc|px)?/);
-      if (widthMatch) width = convertUnits(widthMatch[1] + (widthMatch[2] || 'px'));
-      if (heightMatch) height = convertUnits(heightMatch[1] + (heightMatch[2] || 'px'));
+  if (viewBoxAttr) {
+    const [minX, minY, width, height] = viewBoxAttr.split(' ').map(parseFloat);
+    return { minX, minY, width, height };
+  }
+  
+  // Si pas de viewBox, essayer d'utiliser les attributs width et height
+  const widthAttr = svg.getAttribute('width');
+  const heightAttr = svg.getAttribute('height');
+  
+  if (widthAttr && heightAttr) {
+    const width = convertUnits(widthAttr);
+    const height = convertUnits(heightAttr);
+    return { minX: 0, minY: 0, width, height };
+  }
+  
+  // Si on a un élément SVGSVGElement, on peut utiliser getBBox()
+  if (svg instanceof SVGSVGElement && svg.getBBox) {
+    try {
+      const bbox = svg.getBBox();
+      return { minX: bbox.x, minY: bbox.y, width: bbox.width, height: bbox.height };
+    } catch (e) {
+      console.error('Error getting bbox:', e);
     }
   }
-
-  if (width <= 0) width = 300;
-  if (height <= 0) height = 300;
-
-  const bbox = svg.getBBox();
-  return {
-    minX: bbox.x,
-    minY: bbox.y,
-    width: Math.max(width, bbox.width),
-    height: Math.max(height, bbox.height)
-  };
+  
+  // Valeur par défaut
+  return { minX: 0, minY: 0, width: 300, height: 150 };
 };
 
 const calculateShapeBounds = (path: SVGPathElement): { 
@@ -207,7 +202,8 @@ export const extractShapesFromSVG = (svgContent: string): SVGShape[] => {
 export const applyMaskToImage = async (
   image: HTMLImageElement,
   shape: SVGShape,
-  canvas: HTMLCanvasElement
+  canvas: HTMLCanvasElement,
+  grayscale: boolean = true
 ): Promise<void> => {
   return new Promise((resolve, reject) => {
     try {
@@ -244,6 +240,29 @@ export const applyMaskToImage = async (
 
       // Draw the image
       ctx.drawImage(image, x, y, scaledWidth, scaledHeight);
+
+      // Convert to grayscale if requested
+      if (grayscale) {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+        
+        for (let i = 0; i < data.length; i += 4) {
+          // Skip pixels with zero alpha (transparent pixels)
+          if (data[i + 3] === 0) continue;
+          
+          // Calculate grayscale value using luminance formula
+          const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          
+          // Set RGB values to the grayscale value
+          data[i] = gray;     // R
+          data[i + 1] = gray; // G
+          data[i + 2] = gray; // B
+          // Alpha channel (data[i + 3]) remains unchanged
+        }
+        
+        // Put the grayscale image data back on the canvas
+        ctx.putImageData(imageData, 0, 0);
+      }
 
       // Restore the context state
       ctx.restore();
