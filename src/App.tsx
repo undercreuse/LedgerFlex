@@ -125,42 +125,42 @@ function App() {
         ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, width, height);
 
-        // Charger et dessiner chaque image masquée
-        let loadedCount = 0;
-        
+        // Si aucune image masquée, retourner simplement le canvas avec le fond blanc
         if (maskedImages.length === 0) {
-          // Si aucune image masquée, retourner simplement le canvas avec le fond blanc
           const dataUrl = canvas.toDataURL('image/png');
           resolve(dataUrl);
           return;
         }
 
-        maskedImages.forEach((src) => {
+        // Fonction pour charger une image de manière séquentielle
+        const loadImageSequentially = (index: number) => {
+          if (index >= maskedImages.length) {
+            // Toutes les images ont été chargées, on peut résoudre la promesse
+            const dataUrl = canvas.toDataURL('image/png');
+            resolve(dataUrl);
+            return;
+          }
+
           const img = new Image();
           img.crossOrigin = 'anonymous';
           
           img.onload = () => {
             ctx.drawImage(img, 0, 0, width, height);
-            loadedCount++;
-            
-            if (loadedCount === maskedImages.length) {
-              const dataUrl = canvas.toDataURL('image/png');
-              resolve(dataUrl);
-            }
+            // Passer à l'image suivante
+            loadImageSequentially(index + 1);
           };
           
           img.onerror = (e) => {
             console.error(`Error loading image:`, e);
-            loadedCount++;
-            
-            if (loadedCount === maskedImages.length) {
-              const dataUrl = canvas.toDataURL('image/png');
-              resolve(dataUrl);
-            }
+            // Même en cas d'erreur, on passe à l'image suivante
+            loadImageSequentially(index + 1);
           };
           
-          img.src = src;
-        });
+          img.src = maskedImages[index];
+        };
+
+        // Commencer le chargement séquentiel des images
+        loadImageSequentially(0);
       } catch (error) {
         reject(error);
       }
@@ -308,11 +308,9 @@ function App() {
         // Préparer les images à fusionner
         const imagesToMerge: string[] = [];
         
-        // Ajouter d'abord les images masquées des NFTs, puis l'image des alvéoles
+        // Ajouter d'abord l'image des alvéoles si elle existe
         // Cela permettra aux NFTs d'être au-dessus des alvéoles dans le rendu final
-        imagesToMerge.push(...filteredMaskedImages.map(canvas => canvas.toDataURL('image/png')));
-        
-        // Ajouter ensuite l'image des alvéoles si elle existe
+        // car la fonction mergeMaskedImages dessine les images dans l'ordre du tableau
         if (currentTokenId) {
           const baseUrl = window.location.origin;
           const timestamp = Date.now();
@@ -320,6 +318,10 @@ function App() {
           setAlveolesImage(alveoleUrl);
           imagesToMerge.push(alveoleUrl);
         }
+        
+        // Ajouter ensuite les images masquées des NFTs
+        // Elles seront dessinées après les alvéoles et donc apparaîtront au-dessus
+        imagesToMerge.push(...filteredMaskedImages.map(canvas => canvas.toDataURL('image/png')));
         
         // Fusionner toutes les images
         const dataUrl = await mergeMaskedImages(
