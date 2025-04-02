@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Web3Connect } from './components/Web3Connect';
 import { SVGUploader } from './components/SVGUploader';
 import { NFTSelector } from './components/NFTSelector';
 import { SVGShape, NFTMetadata } from './types';
-import { applyMaskToImage } from './utils/svgProcessor';
 import { Download } from 'lucide-react';
 
 function App() {
@@ -18,7 +17,9 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [svgUrl, setSvgUrl] = useState<string>(''); 
   const [showFinalResult, setShowFinalResult] = useState(true);
-  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const [currentTokenId, setCurrentTokenId] = useState<string>('1'); // Nouvel état pour stocker le token ID actuel
+  const [alveolesImage, setAlveolesImage] = useState<string | null>(null); // Nouvel état pour stocker l'URL de l'image des alvéoles
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const handleConnect = (walletAddress: string, selectedChainId?: string) => {
     if (!walletAddress) {
@@ -40,6 +41,19 @@ function App() {
     setFinalImage(null);
     setError(null);
     setSvgUrl(url);
+    
+    // Extraire le token ID de l'URL du SVG
+    const tokenIdMatch = url.match(/mask_(\d+)\.svg/);
+    if (tokenIdMatch && tokenIdMatch[1]) {
+      const tokenId = tokenIdMatch[1];
+      setCurrentTokenId(tokenId);
+      
+      // Initialiser l'image des alvéoles
+      const baseUrl = window.location.origin;
+      const timestamp = Date.now();
+      const alveoleUrl = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${timestamp}`;
+      setAlveolesImage(alveoleUrl);
+    }
   };
 
   const handleCellDrop = (cellIndex: number, nft: NFTMetadata | undefined) => {
@@ -76,184 +90,211 @@ function App() {
   };
 
   const mergeMaskedImages = async (
-    images: HTMLCanvasElement[],
-    finalCanvas: HTMLCanvasElement,
-    viewBox: SVGShape['viewBox']
+    maskedImages: string[],
+    canvas: HTMLCanvasElement,
+    viewBox: SVGShape['viewBox'] | string
   ): Promise<string> => {
-    finalCanvas.width = viewBox.width;
-    finalCanvas.height = viewBox.height;
-
-    const ctx = finalCanvas.getContext('2d');
-    if (!ctx) throw new Error('Could not get canvas context');
-
-    ctx.clearRect(0, 0, finalCanvas.width, finalCanvas.height);
-    
-    // Ajouter un fond blanc
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
-
-    let tokenId = '1'; 
-    try {
-      // Extraire le token ID du SVG s'il est disponible
-      if (svgUrl) {
-        try {
-          const svgResponse = await fetch(svgUrl);
-          const svgContent = await svgResponse.text();
-          console.log("SVG Content pour détection du token ID (rendu final):", svgContent.substring(0, 200));
-          
-          const svgMatch = svgContent.match(/mask_(\d+)\.svg/);
-          if (svgMatch && svgMatch[1]) {
-            tokenId = svgMatch[1];
-            console.log(`Token ID détecté depuis le SVG pour le rendu final: ${tokenId}`);
-          }
-        } catch (err) {
-          console.warn('Erreur lors de l\'extraction du token ID depuis le SVG:', err);
+    return new Promise((resolve, reject) => {
+      try {
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas context not available'));
+          return;
         }
-      }
-      
-      // Si le token ID n'est pas dans le SVG, essayer de l'extraire de l'URL
-      if (tokenId === '1') {
-        const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
-        if (urlMatch && urlMatch[1]) {
-          tokenId = urlMatch[1];
-          console.log(`Token ID détecté depuis l'URL pour le rendu final: ${tokenId}`);
+
+        let width: number;
+        let height: number;
+
+        // Gérer les deux types de viewBox possibles
+        if (typeof viewBox === 'string') {
+          // Si viewBox est une chaîne, extraire les dimensions
+          const [, , w, h] = viewBox.split(' ').map(Number);
+          width = w;
+          height = h;
         } else {
-          console.warn("Impossible de détecter le token ID pour le rendu final, utilisation de la valeur par défaut: 1");
+          // Si viewBox est un objet, utiliser directement les propriétés
+          width = viewBox.width;
+          height = viewBox.height;
         }
+        
+        // Définir les dimensions du canvas
+        canvas.width = width;
+        canvas.height = height;
+        
+        // Ajouter un fond blanc
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+
+        // Charger et dessiner chaque image masquée
+        let loadedCount = 0;
+        
+        if (maskedImages.length === 0) {
+          // Si aucune image masquée, retourner simplement le canvas avec le fond blanc
+          const dataUrl = canvas.toDataURL('image/png');
+          resolve(dataUrl);
+          return;
+        }
+
+        maskedImages.forEach((src) => {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0, width, height);
+            loadedCount++;
+            
+            if (loadedCount === maskedImages.length) {
+              const dataUrl = canvas.toDataURL('image/png');
+              resolve(dataUrl);
+            }
+          };
+          
+          img.onerror = (e) => {
+            console.error(`Error loading image:`, e);
+            loadedCount++;
+            
+            if (loadedCount === maskedImages.length) {
+              const dataUrl = canvas.toDataURL('image/png');
+              resolve(dataUrl);
+            }
+          };
+          
+          img.src = src;
+        });
+      } catch (error) {
+        reject(error);
       }
-    } catch (err) {
-      console.warn('Impossible de détecter le token ID pour le rendu final:', err);
-    }
+    });
+  };
 
-    // Forcer le token ID à être une chaîne de caractères
-    tokenId = String(tokenId);
-    console.log(`Token ID final pour le rendu final: ${tokenId}`);
-
-    // Définir explicitement l'URL de l'image d'alvéoles
-    const baseUrl = window.location.origin;
-    const alveoleUrl = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
-    console.log(`URL de l'image d'alvéoles à charger pour le rendu final: ${alveoleUrl}`);
-
-    try {
-      await new Promise<void>((resolve) => {
-        const alveoleImg = new Image();
-        alveoleImg.crossOrigin = 'anonymous';
+  const applyMaskToNFTImage = async (
+    nft: NFTMetadata,
+    shape: SVGShape,
+    canvas: HTMLCanvasElement
+  ): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      try {
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
         
-        const timeoutId = setTimeout(() => {
-          console.warn(`Timeout lors du chargement de l'image d'alvéoles pour le rendu final`);
-          resolve(); 
-        }, 5000);
+        // Charger l'image du NFT
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
         
-        alveoleImg.onload = () => {
-          clearTimeout(timeoutId);
-          console.log(`Image d'alvéoles chargée avec succès pour le rendu final: alveoles_${tokenId}.png`);
-          ctx.drawImage(alveoleImg, 0, 0, finalCanvas.width, finalCanvas.height);
+        img.onload = () => {
+          // Effacer le canvas
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          
+          // Calculer l'échelle pour adapter l'image aux dimensions du masque tout en conservant les proportions
+          const scaleX = shape.bounds.width / img.width;
+          const scaleY = shape.bounds.height / img.height;
+          const scale = Math.max(scaleX, scaleY);
+          
+          // Calculer la position pour centrer l'image dans le masque
+          const scaledWidth = img.width * scale;
+          const scaledHeight = img.height * scale;
+          const x = shape.center.x - scaledWidth / 2;
+          const y = shape.center.y - scaledHeight / 2;
+          
+          // Sauvegarder l'état du contexte
+          ctx.save();
+          
+          // Appliquer la transformation du viewBox
+          ctx.translate(-shape.viewBox.minX, -shape.viewBox.minY);
+          
+          // Créer un chemin pour le masque
+          const path = new Path2D(shape.path);
+          
+          // Appliquer le masque
+          ctx.clip(path);
+          
+          // Dessiner l'image
+          ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
+          
+          // Restaurer l'état du contexte
+          ctx.restore();
+          
           resolve();
         };
         
-        alveoleImg.onerror = () => {
-          clearTimeout(timeoutId);
-          console.error(`Erreur lors du chargement de l'image d'alvéoles pour le rendu final: alveoles_${tokenId}.png`);
-          resolve(); 
+        img.onerror = () => {
+          console.error(`Failed to load image for NFT: ${nft.imageUrl}`);
+          reject(new Error(`Failed to load image for NFT: ${nft.imageUrl}`));
         };
         
-        alveoleImg.src = alveoleUrl;
-      });
-    } catch (err) {
-      console.error('Erreur lors du chargement de l\'image d\'alvéoles pour le rendu final:', err);
-    }
-
-    for (const canvas of images) {
-      if (canvas.width === 0 || canvas.height === 0) {
-        throw new Error('Invalid masked image dimensions');
+        img.src = nft.imageUrl;
+      } catch (error) {
+        reject(error);
       }
-      ctx.drawImage(canvas, 0, 0);
-    }
-
-    const dataUrl = finalCanvas.toDataURL('image/png');
-    return dataUrl;
+    });
   };
 
-  const processNFTImages = async (updatedNfts: (NFTMetadata | undefined)[]) => {
+  const processNFTImages = async (selectedNfts: (NFTMetadata | undefined)[]) => {
+    if (processing) return;
+    if (!shapes.length) return;
+    
     try {
-      setMaskedImages([]);
+      setError(null);
+      setProcessing(true);
       
-      const newMaskedImages: HTMLCanvasElement[] = [];
-
-      for (let cellIndex = 0; cellIndex < shapes.length; cellIndex++) {
-        const currentNft = updatedNfts[cellIndex];
-        const currentShape = shapes[cellIndex];
+      // Vérifier si au moins un NFT est sélectionné
+      const hasSelectedNfts = selectedNfts.some(nft => nft !== undefined);
+      
+      if (!hasSelectedNfts) {
+        console.log("Aucun NFT sélectionné, génération directe de l'image d'alvéoles");
         
-        if (!currentNft || !currentShape) {
+        const finalCanvas = canvasRef.current;
+        if (!finalCanvas) throw new Error('Canvas not available');
+        
+        // Charger l'image des alvéoles
+        if (currentTokenId) {
+          const baseUrl = window.location.origin;
+          const timestamp = Date.now();
+          const alveoleUrl = `${baseUrl}/svg/alveoles_${currentTokenId}.png?t=${timestamp}`;
+          setAlveolesImage(alveoleUrl);
+          
+          // Utiliser la fonction mergeMaskedImages mais sans images masquées
+          const dataUrl = await mergeMaskedImages(
+            [alveoleUrl], // Inclure l'image des alvéoles
+            finalCanvas,
+            shapes[0].viewBox
+          );
+          
+          setFinalImage(dataUrl);
+        }
+        
+        setProcessing(false);
+        return;
+      }
+      
+      // Si des NFTs sont sélectionnés, continuer avec le traitement normal
+      const filteredNfts = selectedNfts.filter(Boolean) as NFTMetadata[];
+      console.log(`Traitement de ${filteredNfts.length} NFTs`);
+      
+      // Créer un canvas pour chaque NFT
+      const newMaskedImages: HTMLCanvasElement[] = [];
+      
+      for (let i = 0; i < shapes.length; i++) {
+        const shape = shapes[i];
+        const nft = selectedNfts[i];
+        
+        if (!nft) {
+          newMaskedImages.push(document.createElement('canvas'));
           continue;
         }
-
-        const image = new Image();
-        image.crossOrigin = 'anonymous';
-
-        await new Promise<void>((resolve, reject) => {
-          const timeoutId = setTimeout(() => {
-            reject(new Error(`Timeout loading image ${cellIndex + 1}`));
-          }, 30000);
-
-          image.onload = async () => {
-            clearTimeout(timeoutId);
-            try {
-              if (image.width === 0 || image.height === 0) {
-                throw new Error('Invalid image dimensions');
-              }
-
-              const maskedCanvas = document.createElement('canvas');
-              maskedCanvas.width = currentShape.viewBox.width;
-              maskedCanvas.height = currentShape.viewBox.height;
-
-              await applyMaskToImage(image, currentShape, maskedCanvas);
-
-              const maskedCtx = maskedCanvas.getContext('2d');
-              if (!maskedCtx) throw new Error('Could not get masked canvas context');
-
-              const imageData = maskedCtx.getImageData(
-                0, 0, maskedCanvas.width, maskedCanvas.height
-              );
-              if (!imageData.data.some(pixel => pixel !== 0)) {
-                throw new Error('Masked image is empty');
-              }
-
-              newMaskedImages[cellIndex] = maskedCanvas;
-
-              resolve();
-            } catch (err) {
-              reject(err);
-            }
-          };
-
-          image.onerror = () => {
-            clearTimeout(timeoutId);
-            reject(new Error(`Failed to load image ${cellIndex + 1} from URL: ${currentNft.imageUrl}`));
-          };
-
-          const maxRetries = 3;
-          let retryCount = 0;
-
-          const loadImage = () => {
-            const cacheBuster = `?t=${Date.now()}`;
-            image.src = currentNft.imageUrl + cacheBuster;
-          };
-
-          image.onerror = () => {
-            clearTimeout(timeoutId);
-            if (retryCount < maxRetries) {
-              retryCount++;
-              setTimeout(loadImage, 1000 * retryCount); 
-            } else {
-              reject(new Error(`Failed to load image after ${maxRetries} attempts: ${currentNft.imageUrl}`));
-            }
-          };
-
-          loadImage();
-        });
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = shape.viewBox.width;
+        canvas.height = shape.viewBox.height;
+        
+        await applyMaskToNFTImage(nft, shape, canvas);
+        
+        newMaskedImages.push(canvas);
       }
-
+      
       const filteredMaskedImages = newMaskedImages.filter(Boolean);
       
       setMaskedImages(filteredMaskedImages);
@@ -264,8 +305,24 @@ function App() {
         const finalCanvas = canvasRef.current;
         if (!finalCanvas) throw new Error('Canvas not available');
 
+        // Préparer les images à fusionner
+        const imagesToMerge: string[] = [];
+        
+        // Ajouter d'abord l'image des alvéoles si elle existe
+        if (currentTokenId) {
+          const baseUrl = window.location.origin;
+          const timestamp = Date.now();
+          const alveoleUrl = `${baseUrl}/svg/alveoles_${currentTokenId}.png?t=${timestamp}`;
+          setAlveolesImage(alveoleUrl);
+          imagesToMerge.push(alveoleUrl);
+        }
+        
+        // Ajouter ensuite les images masquées des NFTs
+        imagesToMerge.push(...filteredMaskedImages.map(canvas => canvas.toDataURL('image/png')));
+        
+        // Fusionner toutes les images
         const dataUrl = await mergeMaskedImages(
-          filteredMaskedImages,
+          imagesToMerge,
           finalCanvas,
           shapes[0].viewBox
         );
@@ -281,123 +338,155 @@ function App() {
   };
 
   const handleDownloadImage = async () => {
-    if (!finalImage && !svgUrl) return;
+    // Vérifier si nous avons un token ID valide
+    if (!currentTokenId) {
+      setError("Aucun Cover Flex sélectionné");
+      return;
+    }
     
     const date = new Date();
     const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
     const formattedTime = `${date.getHours().toString().padStart(2, '0')}${date.getMinutes().toString().padStart(2, '0')}`;
     
+    // Si une image finale existe déjà, la télécharger directement
     if (finalImage) {
       const link = document.createElement('a');
       link.href = finalImage;
-      link.download = `ledgerstax_${formattedDate}_${formattedTime}.png`;
+      link.download = `coverflex_${currentTokenId}_${formattedDate}_${formattedTime}.png`;
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
       return;
     }
     
-    if (svgUrl && shapes.length > 0) {
+    // Si nous avons l'image des alvéoles, la télécharger directement
+    if (alveolesImage) {
       try {
-        let tokenId = '1'; 
-        
-        // Charger le contenu SVG
-        const svgResponse = await fetch(svgUrl);
-        const svgContent = await svgResponse.text();
-        console.log("SVG Content pour détection du token ID (téléchargement):", svgContent.substring(0, 200));
-        
-        // Essayer d'extraire le token ID du contenu SVG
-        const svgMatch = svgContent.match(/mask_(\d+)\.svg/);
-        if (svgMatch && svgMatch[1]) {
-          tokenId = svgMatch[1];
-          console.log(`Token ID détecté depuis le SVG pour le téléchargement: ${tokenId}`);
-        } 
-        // Sinon, rechercher dans l'URL si disponible
-        else {
-          const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
-          if (urlMatch && urlMatch[1]) {
-            tokenId = urlMatch[1];
-            console.log(`Token ID détecté depuis l'URL pour le téléchargement: ${tokenId}`);
-          } else {
-            console.warn("Impossible de détecter le token ID pour le téléchargement, utilisation de la valeur par défaut: 1");
-          }
-        }
-        
-        // Forcer le token ID à être une chaîne de caractères
-        tokenId = String(tokenId);
-        console.log(`Token ID final pour le téléchargement: ${tokenId}`);
-        
-        const canvas = document.createElement('canvas');
-        const viewBox = shapes[0].viewBox;
-        canvas.width = viewBox.width;
-        canvas.height = viewBox.height;
-        
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          throw new Error("Impossible de créer le contexte 2D");
-        }
-        
-        // Ajouter un fond blanc
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Définir explicitement l'URL de l'image d'alvéoles
-        const baseUrl = window.location.origin;
-        const alveoleUrl = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
-        console.log(`URL de l'image d'alvéoles à charger pour le téléchargement: ${alveoleUrl}`);
-        
-        const alveoleImg = new Image();
-        alveoleImg.crossOrigin = 'anonymous';
+        // Charger l'image des alvéoles dans un nouvel objet Image
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
         
         await new Promise<void>((resolve, reject) => {
-          alveoleImg.onload = () => {
-            console.log(`Image d'alvéoles chargée avec succès pour le téléchargement: alveoles_${tokenId}.png`);
-            ctx.drawImage(alveoleImg, 0, 0, canvas.width, canvas.height);
+          const timeoutId = setTimeout(() => {
+            reject(new Error("Timeout lors du chargement de l'image des alvéoles"));
+          }, 5000);
+          
+          img.onload = () => {
+            clearTimeout(timeoutId);
             
-            const svgImg = new Image();
-            svgImg.crossOrigin = 'anonymous';
-            svgImg.onload = () => {
-              ctx.drawImage(svgImg, 0, 0, canvas.width, canvas.height);
-              
-              const imageUrl = canvas.toDataURL('image/png');
-              const link = document.createElement('a');
-              link.href = imageUrl;
-              link.download = `ledgerstax_${tokenId}_${formattedDate}_${formattedTime}.png`;
-              link.click();
-              resolve();
-            };
-            svgImg.onerror = () => reject(new Error("Impossible de charger l'image SVG"));
-            svgImg.src = svgUrl;
-          };
-          alveoleImg.onerror = () => {
-            console.warn(`Impossible de charger l'image d'alvéoles ${tokenId}, utilisation du SVG uniquement`);
+            // Créer un canvas temporaire pour dessiner l'image avec un fond blanc
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = img.width;
+            tempCanvas.height = img.height;
             
-            // Ajouter un fond blanc (à nouveau au cas où l'image d'alvéoles n'a pas pu être chargée)
+            const ctx = tempCanvas.getContext('2d');
+            if (!ctx) {
+              reject(new Error("Impossible d'obtenir le contexte du canvas"));
+              return;
+            }
+            
+            // Ajouter un fond blanc
             ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
             
-            const svgImg = new Image();
-            svgImg.crossOrigin = 'anonymous';
-            svgImg.onload = () => {
-              ctx.drawImage(svgImg, 0, 0, canvas.width, canvas.height);
-              
-              const imageUrl = canvas.toDataURL('image/png');
-              const link = document.createElement('a');
-              link.href = imageUrl;
-              link.download = `ledgerstax_${tokenId}_${formattedDate}_${formattedTime}.png`;
-              link.click();
-              resolve();
-            };
-            svgImg.onerror = () => reject(new Error("Impossible de charger l'image SVG"));
-            svgImg.src = svgUrl;
+            // Dessiner l'image sur le canvas par-dessus le fond blanc
+            ctx.drawImage(img, 0, 0);
+            
+            // Convertir le canvas en URL de données
+            const dataUrl = tempCanvas.toDataURL('image/png');
+            
+            // Télécharger l'image
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = `coverflex_${currentTokenId}_${formattedDate}_${formattedTime}.png`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            resolve();
           };
           
-          alveoleImg.src = alveoleUrl;
+          img.onerror = () => {
+            clearTimeout(timeoutId);
+            reject(new Error(`Erreur lors du chargement de l'image des alvéoles`));
+          };
+          
+          img.src = alveolesImage;
         });
       } catch (err) {
-        console.error("Erreur lors du téléchargement de l'image:", err);
-        setError(`Erreur lors du téléchargement: ${err instanceof Error ? err.message : String(err)}`);
+        console.error('Error downloading image with white background:', err);
+        setError(err instanceof Error ? err.message : 'Failed to download image');
+      }
+      return;
+    }
+    
+    // Si nous n'avons pas encore d'image, essayer de la générer
+    if (shapes.length > 0) {
+      try {
+        setProcessing(true);
+        
+        // Traiter les NFTs pour générer l'image finale
+        await processNFTImages(nfts);
+        
+        // À ce stade, finalImage devrait être défini
+        if (finalImage) {
+          const link = document.createElement('a');
+          link.href = finalImage;
+          link.download = `coverflex_${currentTokenId}_${formattedDate}_${formattedTime}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        }
+      } catch (err) {
+        console.error('Error downloading image:', err);
+        setError(err instanceof Error ? err.message : 'Failed to download image');
+      } finally {
+        setProcessing(false);
       }
     }
   };
+
+  const handleTokenIdChange = (tokenId: string) => {
+    console.log(`Token ID changé: ${tokenId}`);
+    setCurrentTokenId(tokenId);
+    
+    // Réinitialiser complètement le tableau des NFTs sélectionnés
+    setNfts(Array(shapes.length).fill(undefined));
+    
+    // Réinitialiser l'image finale car elle n'est plus à jour
+    setFinalImage(null);
+    
+    // Réinitialiser les images masquées
+    setMaskedImages([]);
+    
+    // Nettoyer explicitement le canvas du résultat final
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        
+        // Ajouter un fond blanc pour s'assurer que le canvas est visiblement vide
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
+    }
+    
+    // Mettre à jour l'URL de l'image des alvéoles
+    const baseUrl = window.location.origin;
+    const timestamp = Date.now();
+    const alveoleUrl = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${timestamp}`;
+    setAlveolesImage(alveoleUrl);
+  };
+
+  // Initialiser l'image des alvéoles pour le token ID par défaut au chargement de l'application
+  useEffect(() => {
+    if (currentTokenId && !alveolesImage) {
+      const baseUrl = window.location.origin;
+      const timestamp = Date.now();
+      const alveoleUrl = `${baseUrl}/svg/alveoles_${currentTokenId}.png?t=${timestamp}`;
+      setAlveolesImage(alveoleUrl);
+    }
+  }, [currentTokenId, alveolesImage]);
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-100">
@@ -420,10 +509,11 @@ function App() {
             <div className="w-1/3 p-6 overflow-y-auto border-r border-gray-200 bg-white">
               <div className="space-y-6">
                 <SVGUploader 
-                  onSVGLoad={handleSVGLoad}
+                  onSVGLoad={handleSVGLoad} 
                   selectedNfts={nfts}
                   walletAddress={address}
                   onCellDrop={handleCellDrop}
+                  onTokenIdChange={handleTokenIdChange}
                 />
                 
                 {error && (
@@ -463,9 +553,17 @@ function App() {
                         />
                       ) : (
                         <div className="h-64 flex items-center justify-center">
-                          <p className="text-gray-500">
-                            {processing ? 'Traitement en cours...' : 'Aucune image générée pour le moment'}
-                          </p>
+                          {processing ? (
+                            <p className="text-gray-500">Traitement en cours...</p>
+                          ) : alveolesImage ? (
+                            <img 
+                              src={alveolesImage} 
+                              alt="Image des alvéoles" 
+                              className="w-full h-auto"
+                            />
+                          ) : (
+                            <p className="text-gray-500">Chargez un Cover Flex pour voir l'image</p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -474,10 +572,10 @@ function App() {
                       <button
                         onClick={handleDownloadImage}
                         className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center"
-                        disabled={!finalImage}
+                        disabled={!currentTokenId}
                       >
                         <Download className="w-5 h-5 mr-2" />
-                        Télécharger l'image
+                        {currentTokenId ? `Télécharger l'image pour votre Flex #${currentTokenId}` : "Télécharger l'image pour votre Flex"}
                       </button>
                     </div>
                   </div>
