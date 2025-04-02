@@ -308,7 +308,11 @@ function App() {
         // Préparer les images à fusionner
         const imagesToMerge: string[] = [];
         
-        // Ajouter d'abord l'image des alvéoles si elle existe
+        // Ajouter d'abord les images masquées des NFTs, puis l'image des alvéoles
+        // Cela permettra aux NFTs d'être au-dessus des alvéoles dans le rendu final
+        imagesToMerge.push(...filteredMaskedImages.map(canvas => canvas.toDataURL('image/png')));
+        
+        // Ajouter ensuite l'image des alvéoles si elle existe
         if (currentTokenId) {
           const baseUrl = window.location.origin;
           const timestamp = Date.now();
@@ -316,9 +320,6 @@ function App() {
           setAlveolesImage(alveoleUrl);
           imagesToMerge.push(alveoleUrl);
         }
-        
-        // Ajouter ensuite les images masquées des NFTs
-        imagesToMerge.push(...filteredMaskedImages.map(canvas => canvas.toDataURL('image/png')));
         
         // Fusionner toutes les images
         const dataUrl = await mergeMaskedImages(
