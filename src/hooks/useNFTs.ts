@@ -31,99 +31,117 @@ export const useNFTs = (address: string, chainId?: string) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [availableChains, setAvailableChains] = useState<string[]>([]);
+  const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchNFTs = async () => {
-      if (!ethers.isAddress(address)) {
-        setError('Invalid Ethereum address');
-        setLoading(false);
-        return;
-      }
-
-      if (!API_KEY) {
-        setError('OpenSea API key is not configured');
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-        setNfts([]);
-
-        // Si aucun chainId n'est spécifié, on récupère les NFTs de tous les réseaux supportés
-        const chainsToFetch = chainId 
-          ? [SUPPORTED_CHAINS.find(chain => chain.chainId.toLowerCase() === chainId.toLowerCase())?.id || 'ethereum'] 
-          : SUPPORTED_CHAINS.map(chain => chain.id);
-
-        const allNfts: NFTMetadata[] = [];
-        const foundChains: string[] = [];
-
-        // Récupérer les NFTs pour chaque réseau
-        await Promise.all(chainsToFetch.map(async (chainName) => {
-          try {
-            console.log(`Fetching NFTs for chain: ${chainName}`);
-            const response = await fetch(
-              `${OPENSEA_API_URL}/chain/${chainName}/account/${address}/nfts`,
-              {
-                headers: {
-                  'accept': 'application/json',
-                  'x-api-key': API_KEY
-                }
-              }
-            );
-
-            if (!response.ok) {
-              console.warn(`Error fetching NFTs for chain ${chainName}: ${response.status}`);
-              return;
-            }
-
-            const data = await response.json();
-            
-            if (data.nfts && data.nfts.length > 0) {
-              foundChains.push(chainName);
-              
-              // Process each NFT from the OpenSea response
-              data.nfts.forEach((nft: any) => {
-                if (nft.image_url) {
-                  allNfts.push({
-                    id: `${chainName}-${nft.identifier}`,
-                    imageUrl: nft.image_url,
-                    name: nft.name || `NFT #${nft.identifier}`,
-                    tokenId: nft.identifier,
-                    chain: chainName,
-                    contractAddress: nft.contract,
-                    collection: nft.collection
-                  });
-                }
-              });
-            }
-          } catch (err) {
-            console.error(`Error fetching NFTs for chain ${chainName}:`, err);
-          }
-        }));
-
-        setNfts(allNfts);
-        setAvailableChains(foundChains);
-        
-        if (allNfts.length === 0) {
-          setError('No NFTs found for this address on the selected networks');
-        }
-      } catch (err) {
-        setError('Failed to fetch NFTs from OpenSea. Please try again later.');
-        console.error('Error fetching NFTs:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (address) {
-      fetchNFTs();
-    } else {
-      setNfts([]);
+  // Fonction pour récupérer les NFTs
+  const fetchNFTsForChains = async (chainsToFetch: string[]) => {
+    if (!ethers.isAddress(address)) {
+      setError('Invalid Ethereum address');
       setLoading(false);
+      return;
+    }
+
+    if (!API_KEY) {
+      setError('OpenSea API key is not configured');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      setNfts([]);
+
+      const allNfts: NFTMetadata[] = [];
+      const foundChains: string[] = [];
+
+      // Récupérer les NFTs pour chaque réseau
+      await Promise.all(chainsToFetch.map(async (chainName) => {
+        try {
+          console.log(`Fetching NFTs for chain: ${chainName}`);
+          const response = await fetch(
+            `${OPENSEA_API_URL}/chain/${chainName}/account/${address}/nfts`,
+            {
+              headers: {
+                'accept': 'application/json',
+                'x-api-key': API_KEY
+              }
+            }
+          );
+
+          if (!response.ok) {
+            console.warn(`Error fetching NFTs for chain ${chainName}: ${response.status}`);
+            return;
+          }
+
+          const data = await response.json();
+          
+          if (data.nfts && data.nfts.length > 0) {
+            foundChains.push(chainName);
+            
+            // Process each NFT from the OpenSea response
+            data.nfts.forEach((nft: any) => {
+              if (nft.image_url) {
+                allNfts.push({
+                  id: `${chainName}-${nft.identifier}`,
+                  imageUrl: nft.image_url,
+                  name: nft.name || `NFT #${nft.identifier}`,
+                  tokenId: nft.identifier,
+                  chain: chainName,
+                  contractAddress: nft.contract,
+                  collection: nft.collection
+                });
+              }
+            });
+          }
+        } catch (err) {
+          console.error(`Error fetching NFTs for chain ${chainName}:`, err);
+        }
+      }));
+
+      setNfts(allNfts);
+      setAvailableChains(foundChains);
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching NFTs:', error);
+      setError('Failed to fetch NFTs. Please try again later.');
+      setLoading(false);
+    }
+  };
+
+  // Effet pour récupérer les NFTs au chargement initial
+  useEffect(() => {
+    if (address) {
+      // Si aucun chainId n'est spécifié, on récupère les NFTs de tous les réseaux supportés
+      const chainsToFetch = chainId 
+        ? [SUPPORTED_CHAINS.find(chain => chain.chainId.toLowerCase() === chainId.toLowerCase())?.id || 'ethereum'] 
+        : SUPPORTED_CHAINS.map(chain => chain.id);
+      
+      fetchNFTsForChains(chainsToFetch);
     }
   }, [address, chainId]);
 
-  return { nfts, loading, error, availableChains };
+  // Fonction pour changer de réseau
+  const changeNetwork = (networkId: string | null) => {
+    setSelectedNetwork(networkId);
+    
+    if (address) {
+      if (networkId) {
+        // Récupérer les NFTs uniquement pour le réseau sélectionné
+        fetchNFTsForChains([networkId]);
+      } else {
+        // Récupérer les NFTs pour tous les réseaux
+        fetchNFTsForChains(SUPPORTED_CHAINS.map(chain => chain.id));
+      }
+    }
+  };
+
+  return {
+    nfts,
+    loading,
+    error,
+    availableChains,
+    selectedNetwork,
+    changeNetwork
+  };
 };

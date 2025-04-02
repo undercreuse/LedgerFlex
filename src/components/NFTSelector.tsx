@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Loader2, Filter } from 'lucide-react';
 import { NFTMetadata } from '../types';
-import { useNFTs } from '../hooks/useNFTs';
+import { useNFTs, SUPPORTED_CHAINS } from '../hooks/useNFTs';
 
 interface NFTSelectorProps {
   requiredCount: number;
@@ -14,8 +14,7 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
   walletAddress,
   chainId
 }) => {
-  const { nfts, loading, error, availableChains } = useNFTs(walletAddress, chainId);
-  const [selectedChain, setSelectedChain] = useState<string | null>(null);
+  const { nfts, loading, error, availableChains, selectedNetwork, changeNetwork } = useNFTs(walletAddress, chainId);
   const [showChainFilter, setShowChainFilter] = useState(false);
   const [selectedNFT, setSelectedNFT] = useState<NFTMetadata | null>(null);
   
@@ -37,11 +36,6 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
     e.dataTransfer.setDragImage(img, 50, 50);
   };
 
-  // Filtrer les NFTs par réseau si un filtre est sélectionné
-  const filteredNfts = selectedChain 
-    ? nfts.filter(nft => nft.chain === selectedChain)
-    : nfts;
-
   // Obtenir les réseaux disponibles à partir des NFTs
   const networkOptions = availableChains && availableChains.length > 0
     ? availableChains
@@ -49,15 +43,15 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
 
   // Fonction pour réinitialiser le filtre
   const resetFilter = () => {
-    setSelectedChain(null);
+    changeNetwork(null);
   };
 
   if (loading) {
     return (
       <div className="bg-white p-8 rounded-lg shadow-md">
-        <div className="flex items-center justify-center space-x-2">
-          <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-          <span className="text-gray-600">Chargement des NFTs...</span>
+        <div className="flex flex-col items-center justify-center">
+          <Loader2 className="w-10 h-10 text-blue-500 animate-spin mb-4" />
+          <p className="text-gray-600">Chargement de vos NFTs...</p>
         </div>
       </div>
     );
@@ -65,16 +59,40 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-        <p className="text-red-600 text-sm">{error}</p>
+      <div className="bg-white p-8 rounded-lg shadow-md">
+        <div className="text-center">
+          <div className="text-red-500 mb-4">⚠️</div>
+          <h3 className="text-lg font-semibold text-red-600 mb-2">Erreur</h3>
+          <p className="text-gray-600">{error}</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold">Vos NFTs</h3>
+    <div className="bg-white p-8 rounded-lg shadow-md">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-gray-800">Sélectionner un réseau</h2>
+      </div>
+
+      {/* Sélecteur de réseau */}
+      <div className="mb-6">
+        <select
+          className="w-full p-3 border border-gray-300 rounded-md cursor-pointer hover:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          value={selectedNetwork || ""}
+          onChange={(e) => changeNetwork(e.target.value || null)}
+        >
+          <option value="">Tous les réseaux</option>
+          {SUPPORTED_CHAINS.map((chain) => (
+            <option key={chain.id} value={chain.id}>
+              {chain.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-xl font-bold text-gray-800">Vos NFTs</h2>
         <div className="flex items-center space-x-2">
           <span className="text-sm text-gray-500">
             {requiredCount} cellules disponibles
@@ -86,7 +104,7 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
                 className="flex items-center space-x-1 px-2 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
               >
                 <Filter className="w-4 h-4" />
-                <span>{selectedChain ? `Réseau: ${selectedChain}` : 'Tous les réseaux'}</span>
+                <span>{selectedNetwork ? `Réseau: ${selectedNetwork}` : 'Tous les réseaux'}</span>
               </button>
               
               {showChainFilter && (
@@ -106,13 +124,13 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
                       <button
                         key={chain}
                         onClick={() => {
-                          setSelectedChain(chain);
+                          changeNetwork(chain);
                           setShowChainFilter(false);
                         }}
                         className="w-full text-left px-4 py-2 hover:bg-gray-100 flex items-center"
                       >
                         <span>{chain.charAt(0).toUpperCase() + chain.slice(1)}</span>
-                        {chain === selectedChain && (
+                        {chain === selectedNetwork && (
                           <span className="ml-auto text-green-500">✓</span>
                         )}
                       </button>
@@ -125,10 +143,10 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
         </div>
       </div>
 
-      {selectedChain && (
+      {selectedNetwork && (
         <div className="mb-4 flex items-center">
           <span className="text-sm bg-blue-100 text-blue-800 px-2 py-1 rounded-md flex items-center">
-            Filtré par: {selectedChain.charAt(0).toUpperCase() + selectedChain.slice(1)}
+            Filtré par: {selectedNetwork.charAt(0).toUpperCase() + selectedNetwork.slice(1)}
             <button 
               onClick={resetFilter}
               className="ml-2 text-blue-600 hover:text-blue-800"
@@ -139,43 +157,33 @@ export const NFTSelector: React.FC<NFTSelectorProps> = ({
         </div>
       )}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-        {filteredNfts.map((nft) => {
-          return (
-            <div
-              key={nft.id}
-              draggable
-              onDragStart={(e) => handleDragStart(e, nft)}
-              className={`relative aspect-square rounded-lg overflow-hidden border-2 ${
-                selectedNFT?.id === nft.id 
-                  ? 'border-blue-500' 
-                  : 'border-gray-200 hover:border-gray-300'
-              } transition-all cursor-grab`}
-              onClick={() => setSelectedNFT(nft)}
-            >
-              <img 
-                src={nft.imageUrl} 
-                alt={nft.name} 
-                className="w-full h-full object-cover"
-                crossOrigin="anonymous"
-              />
-              <div className="absolute bottom-0 left-0 right-0 p-2 bg-white bg-opacity-75">
-                <div className="font-medium">{nft.name || `NFT #${nft.tokenId}`}</div>
-                {nft.chain && (
-                  <div className="text-xs text-gray-500">
-                    {nft.chain.charAt(0).toUpperCase() + nft.chain.slice(1)}
-                  </div>
-                )}
-              </div>
+      {/* Grille de NFTs */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        {nfts.map((nft) => (
+          <div
+            key={nft.id}
+            className="relative bg-gray-100 rounded-lg overflow-hidden cursor-move hover:shadow-md transition-shadow duration-200"
+            draggable
+            onDragStart={(e) => handleDragStart(e, nft)}
+          >
+            <img 
+              src={nft.imageUrl} 
+              alt={nft.name}
+              className="w-full h-32 object-cover"
+              loading="lazy"
+            />
+            <div className="p-2">
+              <p className="text-sm font-medium truncate">{nft.name}</p>
+              <p className="text-xs text-gray-500 truncate">{nft.chain}</p>
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
 
-      {filteredNfts.length === 0 && (
+      {nfts.length === 0 && (
         <p className="text-center text-gray-500 my-8">
-          {selectedChain 
-            ? `Aucun NFT trouvé sur le réseau ${selectedChain} pour cette adresse`
+          {selectedNetwork 
+            ? `Aucun NFT trouvé sur le réseau ${selectedNetwork} pour cette adresse`
             : 'Aucun NFT trouvé pour cette adresse'}
         </p>
       )}
