@@ -4,7 +4,6 @@ import { SVGUploader } from './components/SVGUploader';
 import { NFTSelector } from './components/NFTSelector';
 import { SVGShape, NFTMetadata } from './types';
 import { applyMaskToImage, extractShapesFromSVG } from './utils/svgProcessor';
-import { Download } from 'lucide-react';
 import { useNetworks } from './hooks/useNetworks';
 
 function App() {
@@ -19,12 +18,16 @@ function App() {
   const [processing, setProcessing] = useState(false);
   const [svgUrl, setSvgUrl] = useState<string | null>(null);
   const [selectedTokenId, setSelectedTokenId] = useState<string>('1');
+  const [brightness, setBrightness] = useState<number>(100); // Valeur par défaut: 100%
   // Toujours en mode niveaux de gris
   const grayscaleMode = true;
   
   // Utilisation du hook useNetworks pour récupérer les réseaux disponibles
   const { networks, selectedNetwork, setSelectedNetwork } = useNetworks();
   
+  // URL de l'image des alvéoles basée sur le token ID sélectionné
+  const alveolesImageUrl = selectedTokenId ? `/svg/alveoles_${selectedTokenId}.png` : null;
+
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
   const handleConnect = (walletAddress: string, selectedChainId?: string) => {
@@ -48,22 +51,21 @@ function App() {
       setSelectedNetwork(network);
       // Mettre à jour le chainId pour recharger les NFTs
       setChainId(network.chainId);
-      // Réinitialiser les états liés aux NFTs
-      setNfts([]);
-      setShapes([]);
-      setMaskedImages([]);
-      setFinalImage(null);
+      // Ne pas réinitialiser les NFTs déjà ajoutés et l'aperçu
       setError(null);
     }
   };
 
   const handleSVGLoad = (loadedShapes: SVGShape[], url: string) => {
     setShapes(loadedShapes);
-    setNfts([]);
-    setMaskedImages([]);
-    setFinalImage(null);
-    setError(null);
     setSvgUrl(url);
+    setError(null);
+    
+    // Conserver les NFTs déjà ajoutés
+    if (nfts.length > 0) {
+      // Traiter les NFTs existants avec le nouveau SVG
+      processNFTImages(nfts);
+    }
   };
 
   const handleTokenIdChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -71,12 +73,7 @@ function App() {
     console.log(`Token ID sélectionné: ${newTokenId}`);
     setSelectedTokenId(newTokenId);
     
-    // Réinitialiser les états pour vider l'aperçu
-    setNfts([]);
-    setMaskedImages([]);
-    setFinalImage(null);
     setError(null);
-    setShapes([]); // Réinitialiser les formes pour éviter les problèmes d'affichage
     
     try {
       // Charger le SVG correspondant au token ID sélectionné
@@ -96,9 +93,16 @@ function App() {
       const loadedShapes = extractShapesFromSVG(svgContent);
       
       // Mettre à jour l'état avec les nouvelles formes et l'URL du SVG
-      handleSVGLoad(loadedShapes, svgUrl);
+      setShapes(loadedShapes);
+      setSvgUrl(svgUrl);
+      
+      // Conserver les NFTs déjà ajoutés
+      if (nfts.length > 0) {
+        // Traiter les NFTs existants avec le nouveau SVG
+        processNFTImages(nfts);
+      }
     } catch (error) {
-      console.error('Erreur lors du chargement du SVG:', error);
+      console.error(`Erreur lors du chargement du SVG pour le token ID ${newTokenId}:`, error);
       setError(`Erreur lors du chargement du SVG: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
@@ -122,9 +126,6 @@ function App() {
       
       // Mettre à jour l'état des NFTs
       setNfts(updatedNfts);
-      
-      // Réinitialiser l'image finale car elle n'est plus à jour
-      setFinalImage(null);
       
       // Traiter immédiatement les images masquées avec les NFTs mis à jour
       // Utiliser directement updatedNfts au lieu de filtrer selectedNfts
@@ -349,120 +350,150 @@ function App() {
   };
 
   const handleDownloadImage = async () => {
-    if (!finalImage && !svgUrl) return;
+    if (!finalImage && !alveolesImageUrl) return;
     
     const date = new Date();
     const formattedDate = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
     const formattedTime = `${date.getHours().toString().padStart(2, '0')}${date.getMinutes().toString().padStart(2, '0')}`;
     
     if (finalImage) {
-      const link = document.createElement('a');
-      link.href = finalImage;
-      link.download = `ledgerstax_${formattedDate}_${formattedTime}.png`;
-      link.click();
+      try {
+        // Appliquer la luminosité à l'image finale
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              reject(new Error("Impossible de créer le contexte 2D"));
+              return;
+            }
+            
+            // Dessiner l'image sur le canvas
+            ctx.drawImage(img, 0, 0);
+            
+            // Appliquer la luminosité
+            if (brightness !== 100) {
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const data = imageData.data;
+              
+              for (let i = 0; i < data.length; i += 4) {
+                // Appliquer la luminosité à chaque pixel (R, G, B)
+                data[i] = Math.min(255, Math.max(0, data[i] * brightness / 100));
+                data[i + 1] = Math.min(255, Math.max(0, data[i + 1] * brightness / 100));
+                data[i + 2] = Math.min(255, Math.max(0, data[i + 2] * brightness / 100));
+                // Ne pas modifier l'alpha (i + 3)
+              }
+              
+              ctx.putImageData(imageData, 0, 0);
+            }
+            
+            // Télécharger l'image
+            const imageUrl = canvas.toDataURL('image/png');
+            const link = document.createElement('a');
+            link.href = imageUrl;
+            link.download = `ledgerstax_${formattedDate}_${formattedTime}.png`;
+            link.click();
+            
+            resolve();
+          };
+          
+          img.onerror = () => {
+            reject(new Error("Impossible de charger l'image finale"));
+          };
+          
+          img.src = finalImage;
+        });
+      } catch (err) {
+        console.error('Erreur lors du téléchargement de l\'image finale:', err);
+        setError(err instanceof Error ? err.message : 'Échec du téléchargement de l\'image finale');
+        
+        // Fallback au téléchargement direct si l'application de la luminosité échoue
+        const link = document.createElement('a');
+        link.href = finalImage;
+        link.download = `ledgerstax_${formattedDate}_${formattedTime}.png`;
+        link.click();
+      }
+      
       return;
     }
     
-    if (svgUrl && shapes.length > 0) {
+    if (alveolesImageUrl) {
       try {
-        let tokenId = '1'; 
+        // Téléchargement de l'image des alvéoles avec un fond blanc et luminosité ajustée
+        const response = await fetch(alveolesImageUrl);
+        const blob = await response.blob();
         
-        // Charger le contenu SVG
-        const svgResponse = await fetch(svgUrl);
-        const svgContent = await svgResponse.text();
-        console.log("SVG Content pour détection du token ID (téléchargement):", svgContent.substring(0, 200));
-        
-        // Essayer d'extraire le token ID du contenu SVG
-        const svgMatch = svgContent.match(/mask_(\d+)\.svg/);
-        if (svgMatch && svgMatch[1]) {
-          tokenId = svgMatch[1];
-          console.log(`Token ID détecté depuis le SVG pour le téléchargement: ${tokenId}`);
-        } 
-        // Sinon, rechercher dans l'URL si disponible
-        else {
-          const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
-          if (urlMatch && urlMatch[1]) {
-            tokenId = urlMatch[1];
-            console.log(`Token ID détecté depuis l'URL pour le téléchargement: ${tokenId}`);
-          } else {
-            console.warn("Impossible de détecter le token ID pour le téléchargement, utilisation de la valeur par défaut: 1");
-          }
-        }
-        
-        // Forcer le token ID à être une chaîne de caractères
-        tokenId = String(tokenId);
-        console.log(`Token ID final pour le téléchargement: ${tokenId}`);
-        
-        const canvas = document.createElement('canvas');
-        const viewBox = shapes[0].viewBox;
-        canvas.width = viewBox.width;
-        canvas.height = viewBox.height;
-        
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          throw new Error("Impossible de créer le contexte 2D");
-        }
-        
-        // Ajouter un fond blanc
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        
-        // Définir explicitement l'URL de l'image d'alvéoles
-        const baseUrl = window.location.origin;
-        const alveoleUrl = `${baseUrl}/svg/alveoles_${tokenId}.png?t=${Date.now()}`;
-        console.log(`URL de l'image d'alvéoles à charger pour le téléchargement: ${alveoleUrl}`);
-        
-        const alveoleImg = new Image();
-        alveoleImg.crossOrigin = 'anonymous';
+        // Créer une image à partir du blob
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
         
         await new Promise<void>((resolve, reject) => {
-          alveoleImg.onload = () => {
-            console.log(`Image d'alvéoles chargée avec succès pour le téléchargement: alveoles_${tokenId}.png`);
-            ctx.drawImage(alveoleImg, 0, 0, canvas.width, canvas.height);
+          img.onload = () => {
+            // Créer un canvas pour ajouter un fond blanc
+            const canvas = document.createElement('canvas');
             
-            const svgImg = new Image();
-            svgImg.crossOrigin = 'anonymous';
-            svgImg.onload = () => {
-              ctx.drawImage(svgImg, 0, 0, canvas.width, canvas.height);
-              
-              const imageUrl = canvas.toDataURL('image/png');
-              const link = document.createElement('a');
-              link.href = imageUrl;
-              link.download = `ledgerstax_${tokenId}_${formattedDate}_${formattedTime}.png`;
-              link.click();
-              resolve();
-            };
-            svgImg.onerror = () => reject(new Error("Impossible de charger l'image SVG"));
-            svgImg.src = svgUrl;
-          };
-          alveoleImg.onerror = () => {
-            console.warn(`Impossible de charger l'image d'alvéoles ${tokenId}, utilisation du SVG uniquement`);
+            // Définir les dimensions du canvas
+            canvas.width = img.width;
+            canvas.height = img.height;
             
-            // Ajouter un fond blanc (à nouveau au cas où l'image d'alvéoles n'a pas pu être chargée)
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              reject(new Error("Impossible de créer le contexte 2D"));
+              return;
+            }
+            
+            // Ajouter un fond blanc
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            const svgImg = new Image();
-            svgImg.crossOrigin = 'anonymous';
-            svgImg.onload = () => {
-              ctx.drawImage(svgImg, 0, 0, canvas.width, canvas.height);
+            // Dessiner l'image des alvéoles sur le fond blanc
+            ctx.drawImage(img, 0, 0);
+            
+            // Appliquer la luminosité
+            if (brightness !== 100) {
+              const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+              const data = imageData.data;
               
-              const imageUrl = canvas.toDataURL('image/png');
-              const link = document.createElement('a');
-              link.href = imageUrl;
-              link.download = `ledgerstax_${tokenId}_${formattedDate}_${formattedTime}.png`;
-              link.click();
-              resolve();
-            };
-            svgImg.onerror = () => reject(new Error("Impossible de charger l'image SVG"));
-            svgImg.src = svgUrl;
+              for (let i = 0; i < data.length; i += 4) {
+                // Appliquer la luminosité à chaque pixel (R, G, B)
+                data[i] = Math.min(255, Math.max(0, data[i] * brightness / 100));
+                data[i + 1] = Math.min(255, Math.max(0, data[i + 1] * brightness / 100));
+                data[i + 2] = Math.min(255, Math.max(0, data[i + 2] * brightness / 100));
+                // Ne pas modifier l'alpha (i + 3)
+              }
+              
+              ctx.putImageData(imageData, 0, 0);
+            }
+            
+            // Convertir le canvas en URL de données
+            const imageUrl = canvas.toDataURL('image/png');
+            
+            // Télécharger l'image
+            const link = document.createElement('a');
+            link.href = imageUrl;
+            link.download = `alveoles_${selectedTokenId}_${formattedDate}_${formattedTime}.png`;
+            link.click();
+            
+            resolve();
           };
           
-          alveoleImg.src = alveoleUrl;
+          img.onerror = () => {
+            reject(new Error("Impossible de charger l'image des alvéoles"));
+          };
+          
+          img.src = URL.createObjectURL(blob);
         });
+        
+        return;
       } catch (err) {
-        console.error("Erreur lors du téléchargement de l'image:", err);
-        setError(`Erreur lors du téléchargement: ${err instanceof Error ? err.message : String(err)}`);
+        console.error('Erreur lors du téléchargement de l\'image des alvéoles:', err);
+        setError(err instanceof Error ? err.message : 'Échec du téléchargement de l\'image des alvéoles');
       }
     }
   };
@@ -520,11 +551,23 @@ function App() {
                       <canvas ref={canvasRef} className="w-full" style={{ display: 'none' }} />
                       
                       {finalImage ? (
-                        <img 
-                          src={finalImage} 
-                          alt="Composition NFT traitée" 
-                          className="w-full h-auto"
-                        />
+                        <div>
+                          <img 
+                            src={finalImage} 
+                            alt="Composition NFT traitée" 
+                            className="w-full h-auto"
+                            style={{ filter: `brightness(${brightness}%)` }}
+                          />
+                        </div>
+                      ) : alveolesImageUrl ? (
+                        <div>
+                          <img 
+                            src={alveolesImageUrl} 
+                            alt="Alvéoles" 
+                            className="w-full h-auto"
+                            style={{ filter: `brightness(${brightness}%)` }}
+                          />
+                        </div>
                       ) : (
                         <div className="h-64 flex items-center justify-center">
                           <p className="text-gray-500">
@@ -534,13 +577,33 @@ function App() {
                       )}
                     </div>
                     
+                    {/* Curseur de luminosité */}
+                    {(finalImage || alveolesImageUrl) && (
+                      <div className="mt-4">
+                        <label htmlFor="brightness-slider" className="block text-sm font-medium text-gray-700 mb-1">
+                          Luminosité: {brightness}%
+                        </label>
+                        <input
+                          id="brightness-slider"
+                          type="range"
+                          min="50"
+                          max="150"
+                          value={brightness}
+                          onChange={(e) => setBrightness(Number(e.target.value))}
+                          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                        />
+                      </div>
+                    )}
+                    
                     <div className="mt-4 flex justify-center">
                       <button
                         onClick={handleDownloadImage}
                         className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md flex items-center"
-                        disabled={!finalImage}
+                        disabled={!finalImage && !alveolesImageUrl}
                       >
-                        <Download className="w-5 h-5 mr-2" />
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
                         Télécharger l'image
                       </button>
                     </div>
