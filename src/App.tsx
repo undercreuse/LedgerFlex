@@ -5,20 +5,26 @@ import { NFTSelector } from './components/NFTSelector';
 import { SVGShape, NFTMetadata } from './types';
 import { applyMaskToImage, extractShapesFromSVG } from './utils/svgProcessor';
 import { Download } from 'lucide-react';
+import { useNetworks } from './hooks/useNetworks';
 
 function App() {
   const [connected, setConnected] = useState(false);
-  const [address, setAddress] = useState('');
+  const [address, setAddress] = useState<string>('');
   const [chainId, setChainId] = useState<string | undefined>(undefined);
-  const [shapes, setShapes] = useState<SVGShape[]>([]);
   const [nfts, setNfts] = useState<(NFTMetadata | undefined)[]>([]);
+  const [shapes, setShapes] = useState<SVGShape[]>([]);
   const [maskedImages, setMaskedImages] = useState<HTMLCanvasElement[]>([]);
   const [finalImage, setFinalImage] = useState<string | null>(null);
-  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [svgUrl, setSvgUrl] = useState<string>(''); 
-  const [showFinalResult, setShowFinalResult] = useState(true);
-  const [selectedTokenId, setSelectedTokenId] = useState<string>('');
+  const [processing, setProcessing] = useState(false);
+  const [svgUrl, setSvgUrl] = useState<string | null>(null);
+  const [selectedTokenId, setSelectedTokenId] = useState<string>('1');
+  // Toujours en mode niveaux de gris
+  const grayscaleMode = true;
+  
+  // Utilisation du hook useNetworks pour récupérer les réseaux disponibles
+  const { networks, selectedNetwork, setSelectedNetwork } = useNetworks();
+  
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
   const handleConnect = (walletAddress: string, selectedChainId?: string) => {
@@ -32,6 +38,23 @@ function App() {
     setConnected(true);
     setAddress(walletAddress);
     setChainId(selectedChainId);
+  };
+
+  // Gestionnaire pour le changement de réseau
+  const handleNetworkChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const networkId = event.target.value;
+    const network = networks.find(n => n.id === networkId);
+    if (network) {
+      setSelectedNetwork(network);
+      // Mettre à jour le chainId pour recharger les NFTs
+      setChainId(network.chainId);
+      // Réinitialiser les états liés aux NFTs
+      setNfts([]);
+      setShapes([]);
+      setMaskedImages([]);
+      setFinalImage(null);
+      setError(null);
+    }
   };
 
   const handleSVGLoad = (loadedShapes: SVGShape[], url: string) => {
@@ -129,7 +152,7 @@ function App() {
     // Ajouter un fond blanc
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
-
+    
     // Utiliser directement le token ID sélectionné s'il est disponible
     let tokenId = selectedTokenId || '1';
     
@@ -252,7 +275,7 @@ function App() {
               maskedCanvas.width = currentShape.viewBox.width;
               maskedCanvas.height = currentShape.viewBox.height;
 
-              await applyMaskToImage(image, currentShape, maskedCanvas);
+              await applyMaskToImage(image, currentShape, maskedCanvas, grayscaleMode);
 
               const maskedCtx = maskedCanvas.getContext('2d');
               if (!maskedCtx) throw new Error('Could not get masked canvas context');
@@ -276,7 +299,7 @@ function App() {
             clearTimeout(timeoutId);
             reject(new Error(`Failed to load image ${cellIndex + 1} from URL: ${currentNft.imageUrl}`));
           };
-
+          
           const maxRetries = 3;
           let retryCount = 0;
 
@@ -491,15 +514,9 @@ function App() {
                   <div className="bg-white p-6 rounded-lg shadow-md">
                     <div className="flex justify-between items-center mb-4">
                       <h3 className="text-lg font-semibold">Résultat final</h3>
-                      <button
-                        onClick={() => setShowFinalResult(!showFinalResult)}
-                        className="px-3 py-1 bg-gray-200 hover:bg-gray-300 rounded text-sm"
-                      >
-                        {showFinalResult ? 'Masquer' : 'Afficher'}
-                      </button>
                     </div>
                     
-                    <div className={`relative bg-gray-100 rounded-lg overflow-hidden ${showFinalResult ? '' : 'hidden'}`}>
+                    <div className="relative bg-gray-100 rounded-lg overflow-hidden">
                       <canvas ref={canvasRef} className="w-full" style={{ display: 'none' }} />
                       
                       {finalImage ? (
@@ -535,13 +552,32 @@ function App() {
             {/* Colonne de droite */}
             <div className="flex-1 p-6 overflow-y-auto bg-gray-50">
               <div className="space-y-6">
+                {/* Sélecteur de réseau */}
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-4">Sélectionner un réseau</h3>
+                  <div className="relative">
+                    <select
+                      className="w-full p-2 border border-gray-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      value={selectedNetwork?.id || ''}
+                      onChange={handleNetworkChange}
+                    >
+                      {networks.map((network) => (
+                        <option key={network.id} value={network.id}>
+                          {network.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                
                 {connected && (
                   <div className="mb-8">
                     <NFTSelector 
-                      walletAddress={address} 
                       requiredCount={shapes.length} 
+                      walletAddress={address}
                       isProcessing={processing}
                       chainId={chainId}
+                      selectedNetwork={selectedNetwork}
                     />
                   </div>
                 )}

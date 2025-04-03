@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Loader2, Filter } from 'lucide-react';
-import { NFTMetadata } from '../types';
+import { NFTMetadata, NetworkInfo } from '../types';
 import { useNFTs } from '../hooks/useNFTs';
 
 interface NFTSelectorProps {
@@ -8,15 +8,20 @@ interface NFTSelectorProps {
   walletAddress: string;
   isProcessing: boolean;
   chainId?: string;
+  selectedNetwork?: NetworkInfo | null;
 }
 
 export const NFTSelector: React.FC<NFTSelectorProps> = ({
   requiredCount,
   walletAddress,
   isProcessing,
-  chainId
+  chainId,
+  selectedNetwork
 }) => {
-  const { nfts, loading, error, availableChains } = useNFTs(walletAddress, chainId);
+  // Utiliser le chainId du réseau sélectionné s'il est disponible
+  const effectiveChainId = selectedNetwork?.chainId || chainId;
+  
+  const { nfts, loading, error, availableChains } = useNFTs(walletAddress, effectiveChainId);
   const [selectedChain, setSelectedChain] = useState<string | null>(null);
   const [showChainFilter, setShowChainFilter] = useState(false);
   

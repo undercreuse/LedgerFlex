@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import { NFTMetadata } from '../types';
+import { useNFTOwnership } from './useNFTOwnership';
 
 const OPENSEA_API_URL = 'https://api.opensea.io/api/v2';
 const API_KEY = import.meta.env.VITE_OPENSEA_API_KEY;
@@ -31,6 +32,9 @@ export const useNFTs = (address: string, chainId?: string) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [availableChains, setAvailableChains] = useState<string[]>([]);
+  
+  // Utiliser le hook useNFTOwnership pour vérifier la propriété des NFTs du contrat spécifique
+  const { checkOwnership, loading: ownershipLoading } = useNFTOwnership();
 
   useEffect(() => {
     const fetchNFTs = async () => {
@@ -102,6 +106,55 @@ export const useNFTs = (address: string, chainId?: string) => {
             console.error(`Error fetching NFTs for chain ${chainName}:`, err);
           }
         }));
+        
+        // Vérifier également les NFTs du contrat spécifique sur le réseau sélectionné
+        if (chainId) {
+          try {
+            const selectedChain = SUPPORTED_CHAINS.find(chain => chain.chainId.toLowerCase() === chainId.toLowerCase());
+            if (selectedChain) {
+              console.log(`Checking ownership for contract on ${selectedChain.name}`);
+              
+              // Créer un objet NetworkInfo complet avec la couleur
+              const networkInfo = {
+                id: selectedChain.id,
+                name: selectedChain.name,
+                chainId: selectedChain.chainId,
+                color: getNetworkColor(selectedChain.id)
+              };
+              
+              const { isOwner, tokenIds } = await checkOwnership(address, networkInfo);
+              
+              if (isOwner && tokenIds.length > 0) {
+                // Ajouter les NFTs du contrat spécifique
+                tokenIds.forEach(tokenId => {
+                  // Vérifier si ce NFT n'est pas déjà dans la liste
+                  const exists = allNfts.some(nft => 
+                    nft.chain === selectedChain.id && nft.tokenId === tokenId
+                  );
+                  
+                  if (!exists) {
+                    allNfts.push({
+                      id: `${selectedChain.id}-contract-${tokenId}`,
+                      imageUrl: `/nft-images/${tokenId}.png`, // Image par défaut ou à charger dynamiquement
+                      name: `LedgerStax NFT #${tokenId}`,
+                      tokenId: tokenId,
+                      chain: selectedChain.id,
+                      contractAddress: 'CONTRACT_ADDRESS', // Remplacer par l'adresse réelle
+                      collection: 'LedgerStax Collection'
+                    });
+                  }
+                });
+                
+                // S'assurer que ce réseau est dans la liste des réseaux trouvés
+                if (!foundChains.includes(selectedChain.id)) {
+                  foundChains.push(selectedChain.id);
+                }
+              }
+            }
+          } catch (err) {
+            console.error('Error checking contract ownership:', err);
+          }
+        }
 
         setNfts(allNfts);
         setAvailableChains(foundChains);
@@ -123,7 +176,21 @@ export const useNFTs = (address: string, chainId?: string) => {
       setNfts([]);
       setLoading(false);
     }
-  }, [address, chainId]);
+  }, [address, chainId, checkOwnership]);
 
-  return { nfts, loading, error, availableChains };
+  return { nfts, loading: loading || ownershipLoading, error, availableChains };
 };
+
+// Fonction pour attribuer une couleur à chaque réseau
+function getNetworkColor(networkId: string): string {
+  const colors = {
+    'ethereum': 'bg-blue-500',
+    'base': 'bg-blue-400',
+    'optimism': 'bg-red-500',
+    'zora': 'bg-purple-500',
+    'arbitrum': 'bg-blue-600',
+    'polygon': 'bg-indigo-500',
+    'avalanche': 'bg-red-600'
+  };
+  return colors[networkId as keyof typeof colors] || 'bg-gray-500';
+}

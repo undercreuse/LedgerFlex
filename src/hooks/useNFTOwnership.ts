@@ -1,13 +1,34 @@
 import { useState, useCallback } from 'react';
 import axios from 'axios';
+import { NetworkInfo } from '../types';
 
 interface NFTOwnershipResult {
   isOwner: boolean;
   tokenIds: string[];
   loading: boolean;
   error: string | null;
-  checkOwnership: (address: string) => Promise<{ isOwner: boolean; tokenIds: string[] }>;
+  checkOwnership: (address: string, network?: NetworkInfo) => Promise<{ isOwner: boolean; tokenIds: string[] }>;
 }
+
+// Configuration des contrats par réseau
+const CONTRACTS: Record<string, { address: string, apiUrl: string }> = {
+  'base': {
+    address: '0xb671841488e9ab62b59a7ddc55f01e5d74cd2134',
+    apiUrl: 'https://base-sepolia.g.alchemy.com/v2'
+  },
+  'ethereum': {
+    address: '0xb671841488e9ab62b59a7ddc55f01e5d74cd2134', // Exemple, à remplacer par le vrai contrat
+    apiUrl: 'https://eth-mainnet.g.alchemy.com/v2'
+  },
+  'optimism': {
+    address: '0xb671841488e9ab62b59a7ddc55f01e5d74cd2134', // Exemple, à remplacer par le vrai contrat
+    apiUrl: 'https://opt-mainnet.g.alchemy.com/v2'
+  },
+  'polygon': {
+    address: '0xb671841488e9ab62b59a7ddc55f01e5d74cd2134', // Exemple, à remplacer par le vrai contrat
+    apiUrl: 'https://polygon-mainnet.g.alchemy.com/v2'
+  }
+};
 
 export const useNFTOwnership = (): NFTOwnershipResult => {
   const [isOwner, setIsOwner] = useState<boolean>(false);
@@ -15,11 +36,11 @@ export const useNFTOwnership = (): NFTOwnershipResult => {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Configuration
-  const contractAddress = "0xb671841488e9ab62b59a7ddc55f01e5d74cd2134";
+  // Configuration par défaut (Base Sepolia)
+  const defaultNetwork = 'base';
   const alchemyApiKey = "NCN1E4vmR2GiJN2EZCyahtwSG0h9VbMS";
 
-  const checkOwnership = useCallback(async (address: string) => {
+  const checkOwnership = useCallback(async (address: string, network?: NetworkInfo) => {
     if (!address) {
       setError("Adresse wallet non spécifiée");
       return { isOwner: false, tokenIds: [] };
@@ -29,10 +50,22 @@ export const useNFTOwnership = (): NFTOwnershipResult => {
     setError(null);
     
     try {
-      console.log(`Vérification des NFTs pour l'adresse ${address} sur le contrat ${contractAddress}`);
+      // Déterminer le réseau à utiliser
+      const networkId = network?.id || defaultNetwork;
+      const contractConfig = CONTRACTS[networkId] || CONTRACTS[defaultNetwork];
       
-      // Utiliser l'API Alchemy pour vérifier la propriété des NFTs sur Base Sepolia
-      const alchemyUrl = `https://base-sepolia.g.alchemy.com/v2/${alchemyApiKey}/getNFTs?owner=${address}&contractAddresses[]=${contractAddress}`;
+      if (!contractConfig) {
+        setError(`Configuration non disponible pour le réseau ${networkId}`);
+        setLoading(false);
+        return { isOwner: false, tokenIds: [] };
+      }
+      
+      const { address: contractAddress, apiUrl } = contractConfig;
+      
+      console.log(`Vérification des NFTs pour l'adresse ${address} sur le contrat ${contractAddress} (réseau: ${networkId})`);
+      
+      // Utiliser l'API Alchemy pour vérifier la propriété des NFTs
+      const alchemyUrl = `${apiUrl}/${alchemyApiKey}/getNFTs?owner=${address}&contractAddresses[]=${contractAddress}`;
       
       console.log(`Requête Alchemy: ${alchemyUrl}`);
       
@@ -75,7 +108,7 @@ export const useNFTOwnership = (): NFTOwnershipResult => {
       setLoading(false);
       return { isOwner: false, tokenIds: [] };
     }
-  }, [contractAddress, alchemyApiKey]);
+  }, [alchemyApiKey]);
 
   return { isOwner, tokenIds, loading, error, checkOwnership };
 };

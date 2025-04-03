@@ -20,3 +20,10 @@ export interface NFTMetadata {
   contractAddress?: string;
   collection?: string;
 }
+
+export interface NetworkInfo {
+  id: string;
+  name: string;
+  chainId: string;
+  color: string;
+}

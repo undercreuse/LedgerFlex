@@ -80,7 +80,7 @@ const normalizeViewBox = (svg: SVGElement): { minX: number, minY: number, width:
   if (width <= 0) width = 300;
   if (height <= 0) height = 300;
 
-  const bbox = svg.getBBox();
+  const bbox = (svg as SVGGraphicsElement).getBoundingClientRect();
   return {
     minX: bbox.x,
     minY: bbox.y,
@@ -207,7 +207,8 @@ export const extractShapesFromSVG = (svgContent: string): SVGShape[] => {
 export const applyMaskToImage = async (
   image: HTMLImageElement,
   shape: SVGShape,
-  canvas: HTMLCanvasElement
+  canvas: HTMLCanvasElement,
+  grayscale: boolean = false
 ): Promise<void> => {
   return new Promise((resolve, reject) => {
     try {
@@ -244,6 +245,23 @@ export const applyMaskToImage = async (
 
       // Draw the image
       ctx.drawImage(image, x, y, scaledWidth, scaledHeight);
+
+      // Apply grayscale filter if enabled
+      if (grayscale) {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+        
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i + 3] > 0) { // Only process non-transparent pixels
+            const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+            data[i] = avg;     // Red
+            data[i + 1] = avg; // Green
+            data[i + 2] = avg; // Blue
+          }
+        }
+        
+        ctx.putImageData(imageData, 0, 0);
+      }
 
       // Restore the context state
       ctx.restore();
