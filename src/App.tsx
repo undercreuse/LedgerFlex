@@ -3,7 +3,7 @@ import { Web3Connect } from './components/Web3Connect';
 import { SVGUploader } from './components/SVGUploader';
 import { NFTSelector } from './components/NFTSelector';
 import { SVGShape, NFTMetadata } from './types';
-import { applyMaskToImage } from './utils/svgProcessor';
+import { applyMaskToImage, extractShapesFromSVG } from './utils/svgProcessor';
 import { Download } from 'lucide-react';
 
 function App() {
@@ -18,6 +18,7 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [svgUrl, setSvgUrl] = useState<string>(''); 
   const [showFinalResult, setShowFinalResult] = useState(true);
+  const [selectedTokenId, setSelectedTokenId] = useState<string>('');
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
   const handleConnect = (walletAddress: string, selectedChainId?: string) => {
@@ -40,6 +41,43 @@ function App() {
     setFinalImage(null);
     setError(null);
     setSvgUrl(url);
+  };
+
+  const handleTokenIdChange = async (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const newTokenId = event.target.value;
+    console.log(`Token ID sélectionné: ${newTokenId}`);
+    setSelectedTokenId(newTokenId);
+    
+    // Réinitialiser les états pour vider l'aperçu
+    setNfts([]);
+    setMaskedImages([]);
+    setFinalImage(null);
+    setError(null);
+    setShapes([]); // Réinitialiser les formes pour éviter les problèmes d'affichage
+    
+    try {
+      // Charger le SVG correspondant au token ID sélectionné
+      const baseUrl = window.location.origin;
+      const svgUrl = `${baseUrl}/svg/mask_${newTokenId}.svg?t=${Date.now()}`;
+      
+      console.log(`Chargement du SVG pour le token ID ${newTokenId}: ${svgUrl}`);
+      
+      const response = await fetch(svgUrl);
+      if (!response.ok) {
+        throw new Error(`Impossible de charger le SVG pour le token ID ${newTokenId}`);
+      }
+      
+      const svgContent = await response.text();
+      
+      // Extraire les formes du SVG
+      const loadedShapes = extractShapesFromSVG(svgContent);
+      
+      // Mettre à jour l'état avec les nouvelles formes et l'URL du SVG
+      handleSVGLoad(loadedShapes, svgUrl);
+    } catch (error) {
+      console.error('Erreur lors du chargement du SVG:', error);
+      setError(`Erreur lors du chargement du SVG: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
   const handleCellDrop = (cellIndex: number, nft: NFTMetadata | undefined) => {
@@ -92,37 +130,44 @@ function App() {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
 
-    let tokenId = '1'; 
-    try {
-      // Extraire le token ID du SVG s'il est disponible
-      if (svgUrl) {
-        try {
-          const svgResponse = await fetch(svgUrl);
-          const svgContent = await svgResponse.text();
-          console.log("SVG Content pour détection du token ID (rendu final):", svgContent.substring(0, 200));
-          
-          const svgMatch = svgContent.match(/mask_(\d+)\.svg/);
-          if (svgMatch && svgMatch[1]) {
-            tokenId = svgMatch[1];
-            console.log(`Token ID détecté depuis le SVG pour le rendu final: ${tokenId}`);
+    // Utiliser directement le token ID sélectionné s'il est disponible
+    let tokenId = selectedTokenId || '1';
+    
+    // Si le token ID n'est pas défini, essayer de l'extraire du SVG
+    if (!tokenId || tokenId === '') {
+      try {
+        // Extraire le token ID du SVG s'il est disponible
+        if (svgUrl) {
+          try {
+            const svgResponse = await fetch(svgUrl);
+            const svgContent = await svgResponse.text();
+            console.log("SVG Content pour détection du token ID (rendu final):", svgContent.substring(0, 200));
+            
+            const svgMatch = svgContent.match(/mask_(\d+)\.svg/);
+            if (svgMatch && svgMatch[1]) {
+              tokenId = svgMatch[1];
+              console.log(`Token ID détecté depuis le SVG pour le rendu final: ${tokenId}`);
+            }
+          } catch (err) {
+            console.warn('Erreur lors de l\'extraction du token ID depuis le SVG:', err);
           }
-        } catch (err) {
-          console.warn('Erreur lors de l\'extraction du token ID depuis le SVG:', err);
         }
-      }
-      
-      // Si le token ID n'est pas dans le SVG, essayer de l'extraire de l'URL
-      if (tokenId === '1') {
-        const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
-        if (urlMatch && urlMatch[1]) {
-          tokenId = urlMatch[1];
-          console.log(`Token ID détecté depuis l'URL pour le rendu final: ${tokenId}`);
-        } else {
-          console.warn("Impossible de détecter le token ID pour le rendu final, utilisation de la valeur par défaut: 1");
+        
+        // Si le token ID n'est pas dans le SVG, essayer de l'extraire de l'URL
+        if (tokenId === '1') {
+          const urlMatch = window.location.href.match(/token[Ii]d=(\d+)/);
+          if (urlMatch && urlMatch[1]) {
+            tokenId = urlMatch[1];
+            console.log(`Token ID détecté depuis l'URL pour le rendu final: ${tokenId}`);
+          } else {
+            console.warn("Impossible de détecter le token ID pour le rendu final, utilisation de la valeur par défaut: 1");
+          }
         }
+      } catch (err) {
+        console.warn('Impossible de détecter le token ID pour le rendu final:', err);
       }
-    } catch (err) {
-      console.warn('Impossible de détecter le token ID pour le rendu final:', err);
+    } else {
+      console.log(`Utilisation du token ID sélectionné pour le rendu final: ${tokenId}`);
     }
 
     // Forcer le token ID à être une chaîne de caractères
@@ -424,6 +469,8 @@ function App() {
                   selectedNfts={nfts}
                   walletAddress={address}
                   onCellDrop={handleCellDrop}
+                  selectedTokenId={selectedTokenId}
+                  onTokenIdChange={handleTokenIdChange}
                 />
                 
                 {error && (
