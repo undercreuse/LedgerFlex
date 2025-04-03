@@ -28,7 +28,6 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
   const [shapes, setShapes] = React.useState<SVGShape[]>([]);
   const { isOwner, tokenIds, checkOwnership } = useNFTOwnership();
   const [checkingNFT, setCheckingNFT] = React.useState<boolean>(false);
-  const [verificationStatus, setVerificationStatus] = React.useState<string>('');
   const [showDragDrop] = React.useState<boolean>(false);
   const [dragOverCell, setDragOverCell] = React.useState<number | null>(null);
 
@@ -59,7 +58,6 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
   useEffect(() => {
     if (isOwner && tokenIds.length > 0) {
       setError('');
-      setVerificationStatus(`NFT trouvé! Token IDs: ${tokenIds.join(', ')}`);
       
       // Sélectionner automatiquement le premier token ID si aucun n'est sélectionné
       if ((!selectedTokenId || selectedTokenId === '') && onTokenIdChange && tokenIds.length > 0) {
@@ -304,7 +302,6 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
   const loadSVGFromPublic = async (tokenId: string) => {
     try {
       console.log(`Chargement du SVG pour le token ID: ${tokenId}`);
-      setVerificationStatus(`Chargement du SVG pour le token ID: ${tokenId}...`);
       setError('');
       
       // Réinitialiser l'état pour vider l'aperçu
@@ -344,9 +341,6 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
       
       // Rendre l'aperçu
       await renderPreview(svgContent, extractedShapes, []);
-      
-      setVerificationStatus(`SVG chargé avec succès pour le token ID: ${tokenId}`);
-      return extractedShapes;
     } catch (error) {
       console.error("Erreur lors du chargement du SVG:", error);
       setError(`Erreur lors du chargement du SVG: ${error instanceof Error ? error.message : String(error)}`);
@@ -363,15 +357,13 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
     
     setCheckingNFT(true);
     setError('');
-    setVerificationStatus('Vérification de la propriété NFT...');
     
     try {
-      console.log(`Vérification de la propriété NFT pour l'adresse: ${walletAddress}`);
+      console.log(`Vérification de la propriété du Cover Flex pour l'adresse: ${walletAddress}`);
       const result = await checkOwnership(walletAddress);
       
       if (result.isOwner && result.tokenIds.length > 0) {
-        console.log(`Propriété NFT vérifiée! Token IDs: ${result.tokenIds.join(', ')}`);
-        setVerificationStatus(`NFT trouvé! Token IDs: ${result.tokenIds.join(', ')}`);
+        console.log(`Propriété du Cover Flex vérifiée! Token IDs: ${result.tokenIds.join(', ')}`);
         
         // Si un token ID est sélectionné automatiquement, cela déclenchera le chargement du SVG
         if (result.tokenIds.length > 0) {
@@ -391,12 +383,10 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
         }
       } else {
         console.log('Aucun NFT trouvé pour cette collection');
-        setVerificationStatus('Aucun NFT trouvé pour cette collection');
       }
     } catch (err) {
-      console.error('Erreur lors de la vérification de propriété NFT:', err);
+      console.error('Erreur lors de la vérification de propriété du Cover Flex:', err);
       setError(`Erreur lors de la vérification: ${err instanceof Error ? err.message : String(err)}`);
-      setVerificationStatus('');
     } finally {
       setCheckingNFT(false);
     }
@@ -411,29 +401,58 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-4 w-full max-w-3xl mx-auto p-4 bg-white rounded-lg shadow-md">
-        {/* Section de vérification NFT */}
+        {/* Section de vérification de propriété du Cover Flex */}
         <div className="mb-4 p-4 bg-gray-50 rounded-lg">
-          <h3 className="text-lg font-medium mb-2">Vérification de propriété NFT</h3>
-          <p className="text-sm text-gray-600 mb-3">
-            Connectez votre wallet et vérifiez si vous possédez un NFT de la collection pour charger automatiquement votre SVG.
-          </p>
+          <h3 className="text-lg font-medium mb-2">Vérification de propriété du Cover Flex</h3>
           
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleVerifyNFTOwnership}
-              disabled={!walletAddress || checkingNFT}
-              className={`px-4 py-2 rounded-md ${!walletAddress || checkingNFT ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
-            >
-              {checkingNFT ? 'Vérification...' : 'Vérifier propriété NFT'}
-            </button>
-            
-            {verificationStatus && (
-              <span className={`text-sm ${error ? 'text-red-500' : 'text-green-600'}`}>
-                {verificationStatus}
-              </span>
-            )}
-          </div>
+          {!isOwner ? (
+            <>
+              <p className="text-sm text-gray-600 mb-3">
+                Connectez votre wallet et vérifiez si vous possédez un NFT de la collection pour charger automatiquement votre SVG.
+              </p>
+              
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={handleVerifyNFTOwnership}
+                  disabled={!walletAddress || checkingNFT}
+                  className={`px-4 py-2 rounded-md ${!walletAddress || checkingNFT ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
+                >
+                  {checkingNFT ? 'Vérification...' : 'Vérifier propriété du Cover Flex'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* Sélecteur de token ID intégré directement dans la section de vérification */}
+              <div className="mt-2">
+                <div className="flex items-center mb-2 p-2 bg-green-50 border border-green-200 rounded-md">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-green-500 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-sm font-medium text-green-700">
+                    {tokenIds.length} {tokenIds.length === 1 ? 'cover flex trouvé' : 'covers flex trouvés'}
+                  </span>
+                </div>
+                
+                <label htmlFor="tokenIdSelector" className="block text-sm font-medium text-gray-700 mb-1">
+                  Sélectionner un Cover Flex
+                </label>
+                <select
+                  id="tokenIdSelector"
+                  value={selectedTokenId}
+                  onChange={onTokenIdChange}
+                  className="block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                >
+                  {tokenIds.map((tokenId) => (
+                    <option key={tokenId} value={tokenId}>
+                      Cover Flex: {tokenId}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
           
           {error && <p className="text-sm text-red-500 mt-2">{error}</p>}
         </div>
@@ -557,27 +576,6 @@ export const SVGUploader: React.FC<SVGUploaderProps> = ({
             <p className="text-sm text-gray-500 mt-2 text-center">
               Glissez et déposez vos NFTs sur les cellules numérotées
             </p>
-          </div>
-        )}
-        
-        {/* Sélecteur de token ID */}
-        {isOwner && tokenIds.length > 0 && (
-          <div className="mt-4">
-            <label htmlFor="tokenIdSelector" className="block text-sm font-medium text-gray-700 mb-1">
-              Sélectionner un Token ID
-            </label>
-            <select
-              id="tokenIdSelector"
-              value={selectedTokenId}
-              onChange={onTokenIdChange}
-              className="block w-full p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-            >
-              {tokenIds.map((tokenId) => (
-                <option key={tokenId} value={tokenId}>
-                  Token ID: {tokenId}
-                </option>
-              ))}
-            </select>
           </div>
         )}
       </div>
